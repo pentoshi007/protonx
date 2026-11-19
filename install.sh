@@ -177,6 +177,6 @@ printf '  2. Click the shield in the menu bar: pick a country, pick a server, Co
 printf '  3. "Reconnect" repeats your last server in one click. Proton VPN can stay\n'
 printf '     installed and signed in; only one tunnel should be up at a time.\n'
 printf '  4. The CLI is a separate install:\n'
-printf '       npm install -g protonx-cli\n'
+printf '       npm install -g @pentoshi/protonx\n'
 printf '       curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.sh | bash\n'
 printf '  5. ProtonX starts at login; turn that off from the account menu.\n\n'
