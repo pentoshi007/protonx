@@ -12,15 +12,37 @@ The macOS app and the CLI are separate installs. Use either or both.
 
 ## Install
 
+### Which installer
+
+| System | What you get | Install |
+| --- | --- | --- |
+| macOS 13+ | ProtonX.app (menu-bar app) | `curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/get.sh \| bash` |
+| macOS 13+ | `protonx` command and root helper | `npm install -g @pentoshi/protonx`, or `curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.sh \| bash` |
+| Linux (systemd) | `protonx` command and a root helper service | `curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.sh \| bash` |
+| Windows 10/11 | `protonx` command driving WireGuard for Windows | `irm https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.ps1 \| iex` |
+| Linux, Windows or macOS with Node 16+ | the same `protonx` command from npm | `npm install -g @pentoshi/protonx`, then `protonx` |
+
+The macOS app and the CLI are separate installs. Use either or both. The app installer does not install the `protonx` command; the CLI installer does not install the app.
+
 ### macOS app
+
+From a release:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/get.sh | bash
 ```
 
-The app installs to `/Applications/ProtonX.app`, starts at login, and puts a shield in the menu bar. It does not install the `protonx` command.
+From a checkout:
 
-### CLI
+```sh
+git clone https://github.com/pentoshi007/protonx.git
+cd protonx
+./install.sh
+```
+
+The app installs to `/Applications/ProtonX.app`, starts at login, and puts a shield in the menu bar.
+
+### macOS CLI
 
 ```sh
 npm install -g @pentoshi/protonx
@@ -34,19 +56,50 @@ Then run:
 protonx
 ```
 
-The CLI installs `/usr/local/bin/protonx` and a root helper. On macOS it asks for your administrator password once. The CLI installer does not install the app.
+The CLI installs `/usr/local/bin/protonx` and a root helper. On macOS it asks for your administrator password once.
 
-### Linux and Windows
+### Linux
 
 ```sh
-# Linux
 curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.sh | bash
+```
 
-# Windows (PowerShell)
+From a checkout:
+
+```sh
+git clone https://github.com/pentoshi007/protonx.git
+cd protonx
+./cli/install-linux.sh
+```
+
+The installer handles the system packages and installs a systemd helper. Only root and members of the `protonx` group can control the tunnel. Add a user with:
+
+```sh
+sudo usermod -aG protonx NAME
+```
+
+### Windows
+
+```powershell
 irm https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.ps1 | iex
 ```
 
-The Linux installer handles the system packages. The Windows installer installs Python and WireGuard via winget if they are missing; connecting needs an Administrator terminal.
+From a checkout:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File cli\install-windows.ps1
+```
+
+The installer installs Python and WireGuard via winget if they are missing. Connecting needs an Administrator terminal.
+
+### npm
+
+```sh
+npm install -g @pentoshi/protonx
+protonx
+```
+
+Works on macOS, Linux and Windows with Node 16+. The first run offers to install the matching engine and helper; `protonx setup` does it explicitly.
 
 ## Sign in
 
