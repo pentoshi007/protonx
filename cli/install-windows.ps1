@@ -34,7 +34,7 @@ function Install-WithWinget($id, $label) {
     winget install --exact --id $id --silent --accept-package-agreements --accept-source-agreements | Out-Null
 }
 
-Write-Host "`nprotonx-cli installer for Windows`n---------------------------------"
+Write-Host "`nprotonx CLI installer for Windows`n---------------------------------"
 
 $found = Find-Python
 if (-not $found) {

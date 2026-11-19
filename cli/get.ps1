@@ -6,7 +6,7 @@ $Work = Join-Path ([IO.Path]::GetTempPath()) ('protonx-' + [guid]::NewGuid().ToS
 $Archive = "$Work.zip"
 
 try {
-    Write-Host "Downloading protonx-cli ($Ref)"
+    Write-Host "Downloading protonx CLI ($Ref)"
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -UseBasicParsing -Uri "https://codeload.github.com/$Repo/zip/$Ref" -OutFile $Archive
     Expand-Archive -Path $Archive -DestinationPath $Work

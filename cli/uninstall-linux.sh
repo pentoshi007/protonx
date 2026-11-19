@@ -8,7 +8,7 @@ if [ "$(id -u)" != "0" ]; then
   exec sudo bash "$0" "$@"
 fi
 
-printf '\nprotonx-cli uninstaller for Linux\n---------------------------------\n'
+printf '\nprotonx CLI uninstaller for Linux\n---------------------------------\n'
 
 if [ -x /usr/local/bin/protonx ]; then
   /usr/local/bin/protonx disconnect >/dev/null 2>&1 || true

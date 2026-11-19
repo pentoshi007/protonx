@@ -21,7 +21,7 @@ if [ "$(id -u)" != "0" ]; then
   exec sudo bash "$0" "$@"
 fi
 
-printf '\nprotonx-cli installer for Linux\n-------------------------------\n'
+printf '\nprotonx CLI installer for Linux\n-------------------------------\n'
 
 TARGET_USER="${SUDO_USER:-}"
 [ "$TARGET_USER" = "root" ] && TARGET_USER=""

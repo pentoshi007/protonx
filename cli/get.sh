@@ -17,7 +17,7 @@ command -v tar >/dev/null 2>&1 || fail "tar is required"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-printf 'Downloading protonx-cli (%s)\n' "$REF"
+printf 'Downloading protonx CLI (%s)\n' "$REF"
 curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$REF" | tar -xz -C "$TMP" --strip-components=1 \
   || fail "download failed for $REPO@$REF"
 [ -f "$TMP/$INSTALLER" ] || fail "that revision has no installer for $(uname -s)"

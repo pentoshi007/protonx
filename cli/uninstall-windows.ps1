@@ -5,7 +5,7 @@ $Target = Join-Path $env:LOCALAPPDATA 'protonx'
 $Bin = Join-Path $Target 'bin'
 $Launcher = Join-Path $Bin 'protonx.cmd'
 
-Write-Host "`nprotonx-cli uninstaller for Windows`n-----------------------------------"
+Write-Host "`nprotonx CLI uninstaller for Windows`n-----------------------------------"
 
 if (Test-Path $Launcher) { & $Launcher disconnect | Out-Null }
 if (Test-Path $Target) { Remove-Item -Recurse -Force $Target }

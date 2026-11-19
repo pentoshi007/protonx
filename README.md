@@ -1,6 +1,6 @@
 # protonx
 
-Manual country and server selection for Proton VPN. On macOS it ships as a menu-bar app plus the `protonx` command; on Linux and Windows it is the `protonx` command on its own (`protonx-cli`), which also works over SSH.
+Manual country and server selection for Proton VPN. On macOS it ships as a menu-bar app plus the `protonx` command; on Linux and Windows it is the `protonx` command on its own, which also works over SSH.
 
 Proton VPN 4.x removed that ability for free accounts: every location is drawn greyed out and clicking one raises an upgrade prompt. This project gives the selection back as a native app of its own instead of modifying Proton's.
 
@@ -31,10 +31,10 @@ The blocker is `com.apple.developer.networking.networkextension`, a restricted e
 | System | What you get | Install |
 | --- | --- | --- |
 | macOS 13+ | ProtonX.app (menu-bar app) | `curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/get.sh \| bash` |
-| macOS 13+ | `protonx` command and root helper | `npm install -g protonx-cli`, or `curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.sh \| bash` |
+| macOS 13+ | `protonx` command and root helper | `npm install -g @pentoshi/protonx`, or `curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.sh \| bash` |
 | Linux (systemd) | `protonx` command and a root helper service | `curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.sh \| bash` |
 | Windows 10/11 | `protonx` command driving WireGuard for Windows | `irm https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.ps1 \| iex` |
-| Linux, Windows or macOS with Node 16+ | the same `protonx` command from npm | `npm install -g protonx-cli`, then `protonx` |
+| Linux, Windows or macOS with Node 16+ | the same `protonx` command from npm | `npm install -g @pentoshi/protonx`, then `protonx` |
 
 The macOS app and CLI are separate installs. The app installer puts only `ProtonX.app` and its private engine in place; it does not add `protonx` to your PATH. Install the CLI separately with npm or `cli/get.sh` if you want the terminal menu. The npm package is a launcher: the first time you run `protonx` it offers to run the matching installer for your system (`protonx setup` does it explicitly), then starts the CLI.
 
@@ -57,7 +57,7 @@ curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/get.sh | b
 The app installer does not install the `protonx` command. To use the CLI on macOS, install it separately:
 
 ```sh
-npm install -g protonx-cli
+npm install -g @pentoshi/protonx
 # or
 curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.sh | bash
 ```
@@ -216,7 +216,7 @@ Each uninstaller disconnects first. The macOS app uninstaller also removes the l
 ./cli/uninstall-linux.sh [--purge] # Linux
 ```
 
-On Windows: `powershell -ExecutionPolicy Bypass -File cli\uninstall-windows.ps1 [-Purge]`. With npm, run the uninstaller for your system, then `npm uninstall -g protonx-cli`.
+On Windows: `powershell -ExecutionPolicy Bypass -File cli\uninstall-windows.ps1 [-Purge]`. With npm, run the uninstaller for your system, then `npm uninstall -g @pentoshi/protonx`.
 
 ## Status
 
