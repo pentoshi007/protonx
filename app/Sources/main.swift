@@ -15,7 +15,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
     override init() {
         let arguments = CommandLine.arguments
         if let path = arguments.first(where: { $0.hasPrefix("--engine=/") })?.dropFirst("--engine=".count) {
-            state = AppState(engine: Engine(executable: URL(fileURLWithPath: String(path))))
+            state = AppState(engine: Engine(executable: URL(fileURLWithPath: String(path)), usesNativeStatus: false))
         } else {
             state = AppState()
         }
@@ -50,6 +50,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         }
         if arguments.contains("--selftest-status") {
             DispatchQueue.main.async { [weak self] in self?.testNativeStatus() }
+        }
+        if arguments.contains("--selftest-engine") {
+            DispatchQueue.main.async { [weak self] in self?.testEngineSurface() }
+        }
+        if arguments.contains("--selftest-account-menu") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.testAccountMenu() }
+        }
+        if arguments.contains("--selftest-update") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.testUpdateCheck() }
+        }
+        if arguments.contains("--selftest-update-alert") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.testUpdateAlert() }
         }
         if arguments.contains("--preview-signin") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.state.previewSignedOut() }
@@ -101,6 +113,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
             item.submenu = menu
             main.addItem(item)
         }
+        app.addItem(makeItem("Check for Updates…", #selector(checkForUpdates)))
+        app.addItem(makeItem("Launch at Login", #selector(toggleLaunchAtLogin)))
+        app.addItem(.separator())
         app.addItem(withTitle: "Quit ProtonX", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
@@ -167,6 +182,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         menu.addItem(.separator())
         menu.addItem(makeItem("Open Window", #selector(openWindow)))
         menu.addItem(makeItem("Refresh", #selector(refresh)))
+        menu.addItem(makeItem("Check for Updates…", #selector(checkForUpdates)))
+        let login = makeItem("Launch at Login", #selector(toggleLaunchAtLogin))
+        login.state = LaunchAtLogin.isEnabled ? .on : .off
+        menu.addItem(login)
         menu.addItem(withTitle: "Quit ProtonX", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY + 4), in: button)
     }
@@ -189,6 +208,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         let panel = NSPopover()
         let controller = PopoverController(state: state, page: initialPage)
         controller.openWindow = { [weak self] page in self?.showWindow(page: page) }
+        controller.checkForUpdates = { [weak self] in self?.checkForUpdates() }
         controller.dismissForAlert = { [weak self] in
             guard let self, let popover = self.popover else { return false }
             let wasShown = popover.isShown
@@ -234,6 +254,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         target.backgroundColor = Theme.background
         target.isReleasedWhenClosed = false
         let controller = PopoverController(state: state, page: page, detached: true)
+        controller.checkForUpdates = { [weak self] in self?.checkForUpdates() }
         target.contentViewController = controller
         if let appearanceOverride {
             target.appearance = appearanceOverride
@@ -274,6 +295,20 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
     @objc private func didWake() { state.refreshStatus() }
     @objc private func refresh() { state.refresh() }
     @objc private func openWindow() { showWindow(page: nil) }
+    @objc private func toggleLaunchAtLogin() {
+        do {
+            try LaunchAtLogin.setEnabled(!LaunchAtLogin.isEnabled)
+        } catch {
+            state.showNotice("Could not update the login item: \(error.localizedDescription)")
+        }
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(toggleLaunchAtLogin) {
+            menuItem.state = LaunchAtLogin.isEnabled ? .on : .off
+        }
+        return true
+    }
     @objc private func disconnectTunnel() { state.disconnect() }
     @objc private func reconnectLast() { if let target = state.lastServer?.destination { state.connect(target) } }
     @objc private func connectBest() { if let target = state.catalog?.bestDestination(in: nil) { state.connect(target) } }
@@ -311,6 +346,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
             print("Alert placement: FAIL (no controller)")
             exit(1)
         }
+        let canSignOut = state.canSignOut
+        let catalogPhase = String(describing: state.catalogPhase)
         let probe = Timer(timeInterval: 4.0, repeats: false) { _ in
             let modal = NSApp.modalWindow
             let level = modal?.level.rawValue ?? -1
@@ -318,7 +355,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
             let popoverClosed = !panel.isShown
             let passed = visible && level >= NSWindow.Level.modalPanel.rawValue && popoverClosed
             let frame = modal.map { NSStringFromRect($0.frame) } ?? "none"
-            print("Alert placement: probe (canSignOut=\(self.state.canSignOut), catalog=\(self.state.catalogPhase), modal=\(modal != nil))")
+            print("Alert placement: probe (canSignOut=\(canSignOut), catalog=\(catalogPhase), modal=\(modal != nil))")
             print("Alert placement: \(passed ? "PASS" : "FAIL") (level=\(level), visible=\(visible), popoverClosed=\(popoverClosed), frame=\(frame))")
             NSApp.stopModal(withCode: .alertFirstButtonReturn)
             DispatchQueue.main.async { exit(passed ? 0 : 1) }
@@ -444,11 +481,222 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
             exit(1)
         }
     }
+
+    private func testAccountMenu() {
+        let controller = (popover?.isShown == true ? popover?.contentViewController : window?.contentViewController) as? PopoverController
+        guard let controller else {
+            print("Account menu: FAIL (no controller)")
+            exit(1)
+        }
+        let titles = controller.accountMenuTitles()
+        guard !titles.isEmpty else {
+            print("Account menu: FAIL (not signed in)")
+            exit(1)
+        }
+        controller.presentAccountMenuForProbe(capture: ProcessInfo.processInfo.environment["PROTONX_CAPTURE"])
+        print("Account menu: PASS (items=\(titles.joined(separator: " | ")))")
+        exit(0)
+    }
+
+
+    @objc private func checkForUpdates() {
+        state.checkForUpdates { [weak self] result in
+            self?.presentUpdate(result)
+        }
+    }
+
+    private func presentUpdate(_ result: Result<UpdateStatus, Error>) {
+        switch result {
+        case .success(let status) where status.update:
+            let response = presentAlert { alert in
+                alert.messageText = "ProtonX \(status.latest) is available"
+                alert.informativeText = "You have \(status.current). The update downloads the signed release and asks for your administrator password."
+                alert.addButton(withTitle: "Update")
+                alert.addButton(withTitle: "Cancel")
+            }
+            if response == .alertFirstButtonReturn { installUpdate() }
+        case .success(let status):
+            _ = presentAlert { alert in
+                alert.messageText = "ProtonX is up to date"
+                alert.informativeText = "Version \(status.current) is the latest release."
+                alert.addButton(withTitle: "OK")
+            }
+        case .failure(let error):
+            _ = presentAlert { alert in
+                alert.messageText = "Could not check for updates"
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: "OK")
+            }
+        }
+    }
+
+    private func presentAlert(_ configure: (NSAlert) -> Void) -> NSApplication.ModalResponse {
+        let wasShown = popover?.isShown == true
+        popover?.close()
+        let alert = NSAlert()
+        configure(alert)
+        alert.window.center()
+        activate()
+        let response = alert.runModal()
+        if wasShown { togglePopover() }
+        return response
+    }
+
+    private func installUpdate() {
+        let engine = "/usr/local/libexec/protonx-app/app-engine"
+        guard FileManager.default.isExecutableFile(atPath: engine) else {
+            state.showNotice("The ProtonX engine is missing. Reinstall ProtonX.")
+            return
+        }
+        let script = "do shell script \"PROTONX_KEEP_APP=1 \(engine) update --yes --app\" with administrator privileges"
+        let alert = NSAlert()
+        alert.messageText = "Updating ProtonX"
+        alert.informativeText = "Downloading and installing the latest release. This can take a minute."
+        let spinner = NSProgressIndicator()
+        spinner.style = .spinning
+        spinner.startAnimation(nil)
+        alert.accessoryView = spinner
+        alert.addButton(withTitle: "Hide")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result: Result<String, Error>
+            do {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+                process.arguments = ["-e", script]
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                process.standardError = pipe
+                try process.run()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                let output = String(decoding: data, as: UTF8.self)
+                result = process.terminationStatus == 0
+                    ? .success(output)
+                    : .failure(EngineError(output.isEmpty ? "The installer failed." : output))
+            } catch {
+                result = .failure(error)
+            }
+            DispatchQueue.main.async {
+                NSApp.stopModal(withCode: .alertFirstButtonReturn)
+                self?.finishUpdate(result)
+            }
+        }
+        alert.runModal()
+    }
+
+    private func finishUpdate(_ result: Result<String, Error>) {
+        switch result {
+        case .success:
+            try? LaunchAtLogin.setEnabled(true)
+            let response = presentAlert { alert in
+                alert.messageText = "ProtonX is updated"
+                alert.informativeText = "Relaunch ProtonX to use the new version."
+                alert.addButton(withTitle: "Relaunch")
+                alert.addButton(withTitle: "Later")
+            }
+            if response == .alertFirstButtonReturn {
+                NSWorkspace.shared.open(Bundle.main.bundleURL)
+                NSApp.terminate(nil)
+            }
+        case .failure(let error):
+            _ = presentAlert { alert in
+                alert.messageText = "Update failed"
+                alert.informativeText = String(error.localizedDescription.prefix(600))
+                alert.addButton(withTitle: "OK")
+            }
+        }
+    }
+
+    private func captureScreen(_ path: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = ["-x", path]
+        try? process.run()
+        process.waitUntilExit()
+    }
+
+    private func testUpdateCheck() {
+        state.checkForUpdates { result in
+            switch result {
+            case .success(let status):
+                print("Update check: PASS (current=\(status.current), latest=\(status.latest), update=\(status.update))")
+                exit(0)
+            case .failure(let error):
+                print("Update check: FAIL (\(error.localizedDescription))")
+                exit(1)
+            }
+        }
+    }
+
+    private func testUpdateAlert() {
+        let status = UpdateStatus(current: "1.1.0", latest: "1.2.0", update: true)
+        let alert = NSAlert()
+        alert.messageText = "ProtonX \(status.latest) is available"
+        alert.informativeText = "You have \(status.current). The update downloads the signed release and asks for your administrator password."
+        alert.addButton(withTitle: "Update")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.center()
+        activate()
+        let capture = ProcessInfo.processInfo.environment["PROTONX_CAPTURE"] ?? ""
+        let timer = Timer(timeInterval: 1.0, target: self, selector: #selector(captureUpdateAlert(_:)),
+                          userInfo: ["path": capture], repeats: false)
+        RunLoop.main.add(timer, forMode: .common)
+        let response = alert.runModal()
+        print("Update alert: PASS (response=\(response.rawValue))")
+        exit(0)
+    }
+
+    @objc private func captureUpdateAlert(_ timer: Timer) {
+        if let info = timer.userInfo as? [String: String], let path = info["path"], !path.isEmpty {
+            captureScreen(path)
+        }
+        NSApp.stopModal(withCode: .alertSecondButtonReturn)
+    }
+
+    private func testEngineSurface() {
+        let path = CommandLine.arguments.first(where: { $0.hasPrefix("--engine=/") })?.dropFirst("--engine=".count)
+        guard let path else {
+            print("Engine surface: FAIL (pass --engine=/path/to/fake)")
+            exit(1)
+        }
+        let engine = Engine(executable: URL(fileURLWithPath: String(path)), usesNativeStatus: false)
+        do {
+            let status = try engine.status()
+            let catalog = try engine.catalog(offline: true)
+            let account = try engine.account()
+            try engine.connect(Destination(country: "NL", server: "NL-FREE#1"))
+            try engine.disconnect()
+            let signIn = try engine.signIn(username: "tester", password: "secret")
+            let twoFactor = try engine.submitTwoFactor("123456")
+            try engine.signOut()
+            print("Engine surface: PASS (up=\(status.up), countries=\(catalog.countries.count), signedIn=\(account.signedIn), login=\(signIn.status), twoFactor=\(twoFactor.status))")
+            exit(0)
+        } catch {
+            print("Engine surface: FAIL (\(error.localizedDescription))")
+            exit(1)
+        }
+    }
 }
 
 @main @MainActor
 private enum Launch {
     static func main() {
+        if let flag = CommandLine.arguments.first(where: { $0 == "--enable-login-item" || $0 == "--disable-login-item" }) {
+            let enabled = flag == "--enable-login-item"
+            do {
+                try LaunchAtLogin.setEnabled(enabled)
+                print("Launch at login: \(enabled ? "enabled" : "disabled")")
+                exit(0)
+            } catch {
+                print("Launch at login: FAIL \(error.localizedDescription)")
+                exit(1)
+            }
+        }
+        if CommandLine.arguments.contains("--version") {
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+            print("ProtonX \(version)")
+            exit(0)
+        }
         let application = NSApplication.shared
         let controller = AppController()
         application.delegate = controller

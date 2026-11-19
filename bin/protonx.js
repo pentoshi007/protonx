@@ -9,7 +9,7 @@ const readline = require('readline');
 
 const PACKAGE_ROOT = path.join(__dirname, '..');
 const VERSION = require('../package.json').version;
-const MAC_INSTALL = 'curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/get.sh | bash';
+const MAC_INSTALL = 'curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.sh | bash';
 
 function unixTarget(installer) {
   const libexec = '/usr/local/libexec/protonx';
@@ -37,7 +37,7 @@ function target() {
     case 'linux':
       return unixTarget({ command: 'bash', args: [path.join(PACKAGE_ROOT, 'cli', 'install-linux.sh')] });
     case 'darwin':
-      return unixTarget(null);
+      return unixTarget({ command: 'bash', args: [path.join(PACKAGE_ROOT, 'cli', 'install-macos.sh')] });
     case 'win32':
       return windowsTarget();
     default:
@@ -84,7 +84,7 @@ async function ensureEngine(where, forced) {
   if (current && !forced) return true;
   if (!where.installer) {
     if (installed) return true;
-    console.error(`On macOS the protonx CLI ships with the ProtonX app. Install both with:\n  ${MAC_INSTALL}`);
+    console.error(`protonx needs a one-time setup on this machine. Install the CLI with:\n  ${MAC_INSTALL}`);
     return false;
   }
   const reason = installed ? `protonx needs to update its engine from ${installed} to ${VERSION}.` : 'protonx needs a one-time setup on this machine.';

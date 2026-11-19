@@ -8,6 +8,7 @@ final class PopoverController: NSViewController {
     var openWindow: ((DirectoryPage) -> Void)?
     var dismissForAlert: (() -> Bool)?
     var restoreAfterAlert: (() -> Void)?
+    var checkForUpdates: (() -> Void)?
     var page: DirectoryPage { directory.page }
 
     private let state: AppState
@@ -73,23 +74,79 @@ final class PopoverController: NSViewController {
         return line([logo, name, space(), refresh, accountButton, showWindow], spacing: 8)
     }
 
-    private func showAccountMenu() {
-        guard case .ready(let account) = state.session, account.signedIn else { return }
+    private func makeAccountMenu() -> NSMenu? {
+        guard case .ready(let account) = state.session, account.signedIn else { return nil }
         let menu = NSMenu()
         menu.autoenablesItems = false
         let identity = NSMenuItem(title: account.username ?? "Proton account", action: nil, keyEquivalent: "")
         identity.isEnabled = false
         menu.addItem(identity)
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let build = NSMenuItem(title: "ProtonX \(version)", action: nil, keyEquivalent: "")
+        build.isEnabled = false
+        menu.addItem(build)
+        menu.addItem(.separator())
+        let updates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdatesAction), keyEquivalent: "")
+        updates.target = self
+        updates.isEnabled = checkForUpdates != nil
+        menu.addItem(updates)
+        let login = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        login.target = self
+        login.state = LaunchAtLogin.isEnabled ? .on : .off
+        menu.addItem(login)
         menu.addItem(.separator())
         let signOut = NSMenuItem(title: "Sign Out…", action: #selector(confirmSignOut), keyEquivalent: "")
         signOut.target = self
         signOut.isEnabled = state.canSignOut
         menu.addItem(signOut)
+        return menu
+    }
+
+    private func showAccountMenu() {
+        guard let menu = makeAccountMenu() else { return }
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: accountButton.bounds.height + 4), in: accountButton)
+    }
+
+    func accountMenuTitles() -> [String] {
+        makeAccountMenu()?.items.map(\.title) ?? []
+    }
+
+    func presentAccountMenuForProbe(capture: String?) {
+        guard let menu = makeAccountMenu() else { return }
+        if let capture {
+            let timer = Timer(timeInterval: 0.8, target: self, selector: #selector(captureAccountMenu(_:)),
+                              userInfo: ["menu": menu, "path": capture], repeats: false)
+            RunLoop.main.add(timer, forMode: .common)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: accountButton.bounds.height + 4), in: accountButton)
+    }
+
+    @objc private func captureAccountMenu(_ timer: Timer) {
+        guard let info = timer.userInfo as? [String: Any],
+              let menu = info["menu"] as? NSMenu,
+              let path = info["path"] as? String else { return }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = ["-x", path]
+        try? process.run()
+        process.waitUntilExit()
+        menu.cancelTracking()
     }
 
     @objc private func confirmSignOut() {
         DispatchQueue.main.async { [weak self] in self?.presentSignOutAlert() }
+    }
+
+    @objc private func checkForUpdatesAction() {
+        checkForUpdates?()
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        do {
+            try LaunchAtLogin.setEnabled(!LaunchAtLogin.isEnabled)
+        } catch {
+            state.showNotice("Could not update the login item: \(error.localizedDescription)")
+        }
     }
 
     func presentSignOutAlert() {

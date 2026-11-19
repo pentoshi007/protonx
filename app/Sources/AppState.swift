@@ -117,6 +117,10 @@ final class AppState {
         }
     }
 
+    func checkForUpdates(_ completion: @escaping (Result<UpdateStatus, Error>) -> Void) {
+        run({ engine in Result { try engine.updateCheck() } }, completion)
+    }
+
     func server(for destination: Destination) -> Server? {
         catalog?.country(destination.country)?.servers.first { $0.name == destination.server }
     }
@@ -129,6 +133,11 @@ final class AppState {
 
     func dismissNotice() {
         notice = nil
+        onChange?()
+    }
+
+    func showNotice(_ message: String) {
+        notice = message
         onChange?()
     }
 

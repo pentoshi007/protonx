@@ -7,8 +7,8 @@ REF="${PROTONX_REF:-main}"
 fail() { printf '[!!] %s\n' "$1" >&2; exit 1; }
 
 case "$(uname -s)" in
-  Linux) ;;
-  Darwin) fail "on macOS the CLI ships with the ProtonX app: curl -fsSL https://raw.githubusercontent.com/$REPO/main/get.sh | bash" ;;
+  Linux) INSTALLER="cli/install-linux.sh" ;;
+  Darwin) INSTALLER="cli/install-macos.sh" ;;
   *) fail "unsupported system: $(uname -s). On Windows use cli/get.ps1." ;;
 esac
 command -v curl >/dev/null 2>&1 || fail "curl is required"
@@ -20,10 +20,10 @@ trap 'rm -rf "$TMP"' EXIT
 printf 'Downloading protonx-cli (%s)\n' "$REF"
 curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$REF" | tar -xz -C "$TMP" --strip-components=1 \
   || fail "download failed for $REPO@$REF"
-[ -f "$TMP/cli/install-linux.sh" ] || fail "that revision has no Linux installer"
+[ -f "$TMP/$INSTALLER" ] || fail "that revision has no installer for $(uname -s)"
 
 if [ "$(id -u)" = "0" ]; then
-  bash "$TMP/cli/install-linux.sh"
+  bash "$TMP/$INSTALLER"
 else
-  sudo bash "$TMP/cli/install-linux.sh"
+  sudo bash "$TMP/$INSTALLER"
 fi

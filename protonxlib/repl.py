@@ -151,6 +151,7 @@ class Menu:
         choices += [
             Choice("Sign in", self._sign_in, "Proton username or email and password"),
             Choice("Check setup", self._doctor, "dependencies, helper and network"),
+            Choice("Check for updates", self._update, "install the latest release"),
             Choice("Exit", None),
         ]
         return term.select("What do you want to do?", choices, allow_back=False, searchable=False)
@@ -178,6 +179,7 @@ class Menu:
             Choice("Settings", self._settings, self._settings_summary()),
             Choice("Account", self._account, "plan, sign out"),
             Choice("Check setup", self._doctor, "dependencies, helper and session"),
+            Choice("Check for updates", self._update, "install the latest release"),
             Choice("Exit", None, "the VPN stays connected" if up else ""),
         ]
         return term.select("What do you want to do?", choices, allow_back=False, searchable=False)
@@ -395,6 +397,20 @@ class Menu:
                 return
             setattr(self.options, key, not getattr(self.options, key))
             preferences.save(self.options)
+
+    def _update(self):
+        from . import update as updater
+
+        with term.spinner("Checking for updates"):
+            status = updater.check()
+        if not status["update"]:
+            term.success("protonx %s is up to date" % status["current"])
+            return
+        term.say("  protonx %s is available (current %s)." % (status["latest"], status["current"]))
+        if not term.confirm("Update now?", default=True):
+            return
+        updater.install(status["latest"])
+        term.success("Updated to protonx %s. Restart ProtonX if it is running." % status["latest"])
 
     def _doctor(self):
         with term.spinner("Checking"):

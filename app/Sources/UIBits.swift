@@ -7,6 +7,7 @@ enum Theme {
     static let hover = adaptive(0xDAE9E3, 0x2A444A)
     static let title = adaptive(0x183036, 0xECF5F1)
     static let secondary = adaptive(0x4D6366, 0xACC2C1)
+    static let placeholder = adaptive(0x5A7073, 0x9FB7B5)
     static let rule = adaptive(0xD1E0DB, 0x345057)
     static let accent = adaptive(0x065D50, 0xA4E3CC)
     static let onAccent = adaptive(0xFFFFFF, 0x142D32)
@@ -50,6 +51,14 @@ func text(_ value: String = "", _ size: CGFloat = 13, _ weight: NSFont.Weight = 
 @MainActor
 func mono(_ value: String = "", _ size: CGFloat = 11, color: NSColor = Theme.secondary) -> NSTextField {
     text(value, color: color, font: .monospacedSystemFont(ofSize: size, weight: .medium))
+}
+
+@MainActor
+func placeholderText(_ value: String, size: CGFloat = 13) -> NSAttributedString {
+    NSAttributedString(string: value, attributes: [
+        .foregroundColor: Theme.placeholder,
+        .font: NSFont.systemFont(ofSize: size),
+    ])
 }
 
 @MainActor
@@ -162,7 +171,7 @@ final class FieldRow: NSView, NSTextFieldDelegate {
             .foregroundColor: Theme.secondary,
             .kern: 0.7,
         ])
-        field.placeholderString = placeholder
+        field.placeholderAttributedString = placeholderText(placeholder)
         field.setAccessibilityLabel(placeholder)
         field.font = .systemFont(ofSize: 13)
         field.textColor = Theme.title

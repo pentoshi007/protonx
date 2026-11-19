@@ -80,6 +80,12 @@ struct SignInResult: Decodable, Sendable {
     let username: String?
 }
 
+struct UpdateStatus: Decodable, Equatable, Sendable {
+    let current: String
+    let latest: String
+    let update: Bool
+}
+
 enum SessionPhase: Equatable {
     case checking
     case ready(Account)

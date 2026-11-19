@@ -9,6 +9,7 @@ protocol EngineAccess: Sendable {
     func signIn(username: String, password: String) throws -> SignInResult
     func submitTwoFactor(_ code: String) throws -> SignInResult
     func signOut() throws
+    func updateCheck() throws -> UpdateStatus
 }
 
 private struct DisconnectReport: Decodable {
@@ -44,13 +45,15 @@ struct EngineError: LocalizedError, Decodable, Equatable, Sendable {
 
 struct Engine: EngineAccess {
     let executable: URL
+    let usesNativeStatus: Bool
 
-    init(executable: URL = URL(fileURLWithPath: "/usr/local/bin/protonx")) {
+    init(executable: URL = URL(fileURLWithPath: "/usr/local/libexec/protonx-app/app-engine"), usesNativeStatus: Bool = true) {
         self.executable = executable
+        self.usesNativeStatus = usesNativeStatus
     }
 
     func status() throws -> Status {
-        if let native = try? nativeStatus() { return native }
+        if usesNativeStatus, let native = try? nativeStatus() { return native }
         return try decode(Status.self, ["status", "--json"], timeout: 10)
     }
 
@@ -87,6 +90,10 @@ struct Engine: EngineAccess {
 
     func signOut() throws {
         _ = try run(["logout", "--json"], timeout: 20)
+    }
+
+    func updateCheck() throws -> UpdateStatus {
+        try decode(UpdateStatus.self, ["update", "--check", "--json"], timeout: 30)
     }
 
     func signIn(username: String, password: String) throws -> SignInResult {

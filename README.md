@@ -23,17 +23,20 @@ The blocker is `com.apple.developer.networking.networkextension`, a restricted e
 - `Reconnect` on the last server you used, without opening anything
 - Live handshake age and byte counters while connected
 - The same features from the terminal through `protonx`: type `protonx` for a guided menu, or use one-shot commands with flags
+- The app is self-contained; the `protonx` CLI is a separate install for the terminal
+- Starts automatically at login, so the shield is already in the menu bar after a reboot; turn it off from the account menu
 
 ## Which installer
 
 | System | What you get | Install |
 | --- | --- | --- |
-| macOS 13+ | ProtonX.app and the `protonx` command | `curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/get.sh \| bash` |
+| macOS 13+ | ProtonX.app (menu-bar app) | `curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/get.sh \| bash` |
+| macOS 13+ | `protonx` command and root helper | `npm install -g protonx-cli`, or `curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.sh \| bash` |
 | Linux (systemd) | `protonx` command and a root helper service | `curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.sh \| bash` |
 | Windows 10/11 | `protonx` command driving WireGuard for Windows | `irm https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.ps1 \| iex` |
-| Linux or Windows with Node 16+ | the same `protonx` command from npm | `npm install -g protonx-cli`, then `protonx` |
+| Linux, Windows or macOS with Node 16+ | the same `protonx` command from npm | `npm install -g protonx-cli`, then `protonx` |
 
-On macOS the CLI comes with the app, so use the app installer there. The npm package is a launcher: the first time you run `protonx` it offers to run the matching installer for your system (`protonx setup` does it explicitly), then starts the CLI.
+The macOS app and CLI are separate installs. The app installer puts only `ProtonX.app` and its private engine in place; it does not add `protonx` to your PATH. Install the CLI separately with npm or `cli/get.sh` if you want the terminal menu. The npm package is a launcher: the first time you run `protonx` it offers to run the matching installer for your system (`protonx setup` does it explicitly), then starts the CLI.
 
 ## Install on macOS
 
@@ -51,12 +54,20 @@ From a release (downloads, verifies and installs in one command):
 curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/get.sh | bash
 ```
 
-The installer builds the app from a checkout (a release archive ships the prebuilt universal app), runs the test suite, installs the engine to `/usr/local/libexec/protonx`, creates a private Python environment there, installs a privileged helper daemon, and puts `ProtonX.app` in `/Applications`.
+The app installer does not install the `protonx` command. To use the CLI on macOS, install it separately:
+
+```sh
+npm install -g protonx-cli
+# or
+curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.sh | bash
+```
+
+The installer builds the app from a checkout (a release archive ships the prebuilt universal app), runs the test suite, installs the app engine to `/usr/local/libexec/protonx-app`, creates a private Python environment there, installs a privileged helper daemon, and puts `ProtonX.app` in `/Applications`.
 
 Requirements:
 
 - macOS 13 or newer, Intel or Apple Silicon.
-- `python3` with `venv` and `pip`. The Command Line Tools provide it (`xcode-select --install`); Homebrew's `python3` also works. The installer discovers the interpreter and creates `/usr/local/libexec/protonx/venv`, then installs `cryptography` and `bcrypt` into it, so nothing is added to the system Python and no wheels are vendored.
+- `python3` with `venv` and `pip`. The Command Line Tools provide it (`xcode-select --install`); Homebrew's `python3` also works. The installer discovers the interpreter and creates `/usr/local/libexec/protonx-app/venv`, then installs `cryptography` and `bcrypt` into it, so nothing is added to the system Python and no wheels are vendored.
 - `wireguard-tools` (`brew install wireguard-tools`).
 - Building from source additionally needs the Swift toolchain from the Command Line Tools. A release archive ships the prebuilt universal app, so end users do not need Swift.
 
@@ -138,7 +149,7 @@ Quitting the menu never touches the tunnel. Connect, quit, close the terminal or
 
 ## Use the app
 
-Click the shield in the menu bar. Pick a country, then either `Connect to fastest` or a specific server. While connected, the card shows the server, interface, address, handshake age and traffic counters. `Disconnect` tears the tunnel down; the last server is remembered. The app and the CLI share the same session, last-server record and tunnel, so you can connect in one and disconnect in the other.
+Click the shield in the menu bar. Pick a country, then either `Connect to fastest` or a specific server. While connected, the card shows the server, interface, address, handshake age and traffic counters. `Disconnect` tears the tunnel down; the last server is remembered. The app and the CLI share the same session, last-server record and tunnel, so you can connect in one and disconnect in the other. The account menu also toggles `Launch at Login`.
 
 ## One-shot commands
 
@@ -155,6 +166,15 @@ protonx disconnect
 
 `connect` while a tunnel is up switches to the new server; if the new one fails, the previous tunnel is restored. Add `--json` to any command for machine-readable output, `--offline` to work from the cached server list, `--paid` to include plus-tier servers, `--random` to pick a random server instead of the fastest, `--no-dns` to keep the system resolver, and `--dry-run` to print the generated configuration without connecting.
 
+## Update
+
+The app and CLI update separately, because they are installed separately.
+
+- App: `Check for Updates…` in the account menu, the app menu, or the right-click menu. It checks the latest GitHub release, downloads the signed archive, verifies its checksum, runs the app installer with an administrator prompt, re-enables the login item, and offers to relaunch.
+- CLI: `protonx update --check` reports the current and latest versions; `protonx update` installs the latest CLI. The interactive menu also has `Check for updates`.
+
+Both use `https://github.com/pentoshi007/protonx/releases/latest`. The app update installs only the app; the CLI update installs only the CLI.
+
 ## Over SSH on Linux
 
 A full tunnel normally cuts off the SSH session you used to start it, because the replies to your SSH client start going into the tunnel. When `protonx` runs inside an SSH session on Linux (it reads `SSH_CONNECTION`), it asks the helper for an SSH guard: one policy rule, `from <the address you SSH'd to> lookup main`, so replies sent from that address keep using the normal route. New outbound connections still go through the VPN. The rule is removed on disconnect. Turn it off with `--no-ssh-guard` or in Settings.
@@ -164,6 +184,7 @@ macOS and Windows do not have the SSH guard; starting a full tunnel from an SSH 
 ## How it works
 
 - `protonxlib/` talks to the Proton API with your ProtonX session: server list, WireGuard certificate, key registration, X25519 identity, config generation. `protonxlib/repl.py` is the interactive menu and `protonxlib/service.py` holds the operations it shares with the one-shot commands.
+- The app engine lives in `/usr/local/libexec/protonx-app`; the CLI engine lives in `/usr/local/libexec/protonx`. They share the root helper and the `~/.config/protonx` session, so either can connect and the other sees the tunnel.
 - Neither the app nor the CLI calls `sudo`. On macOS and Linux a root helper owns the tunnel (`com.protonx.helper` under launchd, `protonx-helper.service` under systemd): it validates the request, writes the configuration itself, and runs `wg-quick`. `helper/helper_macos.py` and `helper/helper_linux.py` hold the system-specific parts.
 - The helper only accepts structured fields (keys, address, endpoint, port, MTU, keepalive, SSH guard address). Directives such as `PostUp`, unknown fields, malformed keys, and shell metacharacters in the endpoint are rejected, so the socket cannot be used to run commands as root. The rules live in `protonxlib/wgconf.py`, shared with the Windows path.
 - The socket lives at `/var/run/protonx/helper.sock`. On macOS it is owned `root:admin` with mode `0660` and the helper re-checks that the caller is root or an admin user. On Linux the helper reads the caller's uid with `SO_PEERCRED` and only serves root and members of the `protonx` group; the socket file itself is `0666` so a user added to the group can connect without logging out first.
@@ -176,21 +197,22 @@ macOS and Windows do not have the SSH guard; starting a full tunnel from an SSH 
 | Symptom | Cause and fix |
 | --- | --- |
 | Sign-in card will not go away | `protonx whoami --json` shows whether a session exists; wrong credentials return code 8002, and Proton's captcha returns a message asking you to sign in at account.proton.me once. |
-| "the protonx helper is not running" | macOS: re-run `./install.sh`. Linux: `systemctl status protonx-helper`, or re-run `cli/install-linux.sh`. |
+| "the protonx helper is not running" | macOS app: re-run `./install.sh`; macOS CLI: re-run `cli/install-macos.sh`. Linux: `systemctl status protonx-helper`, or re-run `cli/install-linux.sh`. |
 | "the protonx helper refused this user" (Linux) | `sudo usermod -aG protonx $USER`. |
 | "connecting on Windows needs an Administrator terminal" | Open the terminal with Run as administrator. |
 | SSH session dropped after connecting | On Linux check that Settings shows SSH guard on. On macOS and Windows there is no guard; connect from a local terminal. |
 | Country list is empty | No cached list and no live session. Sign in, then press refresh. |
 | Connects but no internet | Fixed: the daemon now saves and restores DNS itself. If a machine was left broken by an older build, `sudo networksetup -setdnsservers Wi-Fi Empty` restores automatic DNS. |
-| Menu-bar shield missing | `open -a ProtonX`; check `pgrep -fl ProtonX`. |
+| Menu-bar shield missing | `open -a ProtonX`; check `pgrep -fl ProtonX`; enable `Launch at Login` in the account menu. |
 
 ## Uninstall
 
-Each uninstaller disconnects first.
+Each uninstaller disconnects first. The macOS app uninstaller also removes the login item; the CLI uninstaller leaves the app and its helper in place.
 
 ```sh
-./uninstall.sh                     # macOS: keeps cached servers and last-server record
-./uninstall.sh --purge             # macOS: removes them too
+./uninstall.sh                     # macOS app: keeps cached servers and last-server record
+./uninstall.sh --purge             # macOS app: removes them too
+./cli/uninstall-macos.sh [--purge] # macOS CLI
 ./cli/uninstall-linux.sh [--purge] # Linux
 ```
 
@@ -198,9 +220,9 @@ On Windows: `powershell -ExecutionPolicy Bypass -File cli\uninstall-windows.ps1 
 
 ## Status
 
-Linux and Windows support is new in 1.1.0. The Linux helper was exercised end to end against stand-ins for `wg`, `wg-quick` and `ip` (connect, switch, failed switch with rollback, SSH guard, `resolv.conf` save and restore), and the interactive menu was driven through a pseudo-terminal. It has not yet run against a live Proton server on Linux or Windows, and the Windows path has not been run at all.
+Linux and Windows support is new in 1.1.0. The macOS app and CLI are separate installs in 1.1.0: the app installer no longer puts `protonx` on PATH, and `cli/install-macos.sh` or npm install the CLI on its own. The Linux helper was exercised end to end against stand-ins for `wg`, `wg-quick` and `ip` (connect, switch, failed switch with rollback, SSH guard, `resolv.conf` save and restore), and the interactive menu was driven through a pseudo-terminal. It has not yet run against a live Proton server on Linux or Windows, and the Windows path has not been run at all.
 
-Verified on macOS with 1.0.0, before the helper was split into per-platform modules: 77 Python tests and 10 Swift state scenarios, the SRP client cross-checked against Proton's own `go-srp` server implementation (it accepted our proof and its server proof matched), a live sign-in, a live WireGuard tunnel to `CA-FREE#20` with a real handshake and hundreds of kilobytes of traffic, DNS resolution and HTTPS by name through that tunnel, DNS restored to automatic on disconnect, and the app's sign-in, country and server screens.
+Verified on macOS with 1.1.0: 85 Python tests and 10 Swift state scenarios; the app and CLI installed separately; the app engine worked with `/usr/local/bin/protonx` removed; the CLI worked with the app not running; the app's status, popover, update check, account menu, sign-out alert and login item were exercised; the universal app contains `x86_64` and `arm64`. The live tunnel, SRP sign-in, DNS restore and app screens were verified on 1.0.0, and the tunnel engine is unchanged in 1.1.0.
 
 Free tier only: the app asks the engine for `countries --free`, so only locations with free servers appear (10 here, 199 servers in the US, 50 in NL), and the server list never shows plus-tier entries.
 

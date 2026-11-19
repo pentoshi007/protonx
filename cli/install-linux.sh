@@ -100,9 +100,9 @@ ok "engine installed to $LIBEXEC"
 
 "$PYTHON_BIN" -m venv "$VENV"
 "$VENV/bin/python" -m pip install --quiet --no-cache-dir --disable-pip-version-check --upgrade pip >/dev/null
-"$VENV/bin/python" -m pip install --quiet --no-cache-dir --disable-pip-version-check cryptography bcrypt >/dev/null \
-  || fail "pip could not install cryptography and bcrypt (check the network, then re-run)"
-"$VENV/bin/python" -c 'import cryptography, bcrypt' >/dev/null 2>&1 || fail "the python environment at $VENV is incomplete"
+"$VENV/bin/python" -m pip install --quiet --no-cache-dir --disable-pip-version-check cryptography bcrypt certifi >/dev/null \
+  || fail "pip could not install cryptography, bcrypt and certifi (check the network, then re-run)"
+"$VENV/bin/python" -c 'import cryptography, bcrypt, certifi' >/dev/null 2>&1 || fail "the python environment at $VENV is incomplete"
 ok "python environment ready at $VENV"
 
 if [ -d "$ROOT/tests" ]; then

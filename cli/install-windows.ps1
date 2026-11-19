@@ -62,8 +62,8 @@ Ok "engine installed to $Engine"
 
 & $found.Exe @prefix -m venv $Venv
 if ($LASTEXITCODE -ne 0) { Fail 'could not create the Python environment' }
-& $VenvPython -m pip install --quiet --disable-pip-version-check cryptography bcrypt
-if ($LASTEXITCODE -ne 0) { Fail 'pip could not install cryptography and bcrypt (check the network, then re-run)' }
+& $VenvPython -m pip install --quiet --disable-pip-version-check cryptography bcrypt certifi
+if ($LASTEXITCODE -ne 0) { Fail 'pip could not install cryptography, bcrypt and certifi (check the network, then re-run)' }
 Ok "python environment ready at $Venv"
 
 $launcher = "@echo off`r`n`"$VenvPython`" `"$Engine\protonx`" %*`r`n"

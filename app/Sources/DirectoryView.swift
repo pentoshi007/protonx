@@ -89,6 +89,7 @@ final class DirectoryView: NSView, NSTableViewDataSource, NSTableViewDelegate, N
     private func configureSearch() {
         search.font = .systemFont(ofSize: 13)
         search.textColor = Theme.title
+        search.placeholderAttributedString = placeholderText("Find a country, city, or server")
         search.isBordered = false
         search.drawsBackground = false
         search.focusRingType = .none
@@ -183,7 +184,7 @@ final class DirectoryView: NSView, NSTableViewDataSource, NSTableViewDelegate, N
             back.isHidden = true
             countryTitle.isHidden = true
             best.isHidden = true
-            search.placeholderString = page == .saved ? "Search saved servers" : "Find a country, city, or server"
+            search.placeholderAttributedString = placeholderText(page == .saved ? "Search saved servers" : "Find a country, city, or server")
             section.stringValue = page == .saved ? "SAVED SERVERS" : "FREE DIRECTORY"
         }
         legend.isHidden = rows.isEmpty
@@ -201,7 +202,7 @@ final class DirectoryView: NSView, NSTableViewDataSource, NSTableViewDelegate, N
         best.isEnabled = state.canConnect && target != nil && target != state.activeDestination
         best.toolTip = target.map { "Select \($0.server) by reported server load" }
         best.handler = { [weak state] in if let target { state?.connect(target) } }
-        search.placeholderString = "Find a city or server in \(name)"
+        search.placeholderAttributedString = placeholderText("Find a city or server in \(name)")
         section.stringValue = "SORTED BY LOAD"
     }
 

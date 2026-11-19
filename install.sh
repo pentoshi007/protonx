@@ -3,18 +3,17 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_TARGET="/Applications/ProtonX.app"
-LIBEXEC="/usr/local/libexec/protonx"
+LIBEXEC="/usr/local/libexec/protonx-app"
 VENV="$LIBEXEC/venv"
-CLI="/usr/local/bin/protonx"
 PLIST="/Library/LaunchDaemons/com.protonx.helper.plist"
 
 info() { printf '  %s\n' "$1"; }
 ok()   { printf '[ok] %s\n' "$1"; }
 fail() { printf '[!!] %s\n' "$1"; exit 1; }
 
-printf '\nprotonx installer\n-----------------\n'
+printf '\nProtonX app installer\n---------------------\n'
 
-[ "$(uname -s)" = "Darwin" ] || fail "this installer is for macOS. On Linux run cli/install-linux.sh; on Windows run cli/install-windows.ps1."
+[ "$(uname -s)" = "Darwin" ] || fail "this installer is for the macOS app. The CLI is separate: cli/get.sh (Linux/macOS) or cli/get.ps1 (Windows)."
 
 if [ "$(id -u)" != "0" ]; then
   exec sudo -S "$0" "$@"
@@ -50,7 +49,7 @@ for tool in wg wg-quick; do
 done
 ok "wireguard-tools present"
 
-printf '\ninstalling engine\n-----------------\n'
+printf '\ninstalling app engine\n---------------------\n'
 sudo mkdir -p "$LIBEXEC"
 sudo rm -rf "$LIBEXEC/protonxlib" "$LIBEXEC/vendor" "$LIBEXEC/helper" "$LIBEXEC/helper.py" "$VENV"
 sudo cp -R "$ROOT/protonxlib" "$LIBEXEC/"
@@ -60,15 +59,17 @@ sudo install -m 755 "$ROOT/protonx" "$LIBEXEC/protonx"
 sed -n 's/^__version__ = "\(.*\)"/\1/p' "$ROOT/protonxlib/__init__.py" | sudo tee "$LIBEXEC/VERSION" >/dev/null
 sudo find "$LIBEXEC" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 sudo chown -R root:wheel "$LIBEXEC"
-ok "engine installed to $LIBEXEC"
+ok "app engine installed to $LIBEXEC"
 
 sudo "$PYTHON_BIN" -m venv "$VENV"
 sudo "$VENV/bin/python" -m pip install --quiet --no-cache-dir --disable-pip-version-check --upgrade pip >/dev/null
-sudo "$VENV/bin/python" -m pip install --quiet --no-cache-dir --disable-pip-version-check cryptography bcrypt >/dev/null \
-  || fail "pip could not install cryptography and bcrypt (check the network, then re-run)"
-sudo "$VENV/bin/python" -c 'import cryptography, bcrypt' >/dev/null 2>&1 \
+sudo "$VENV/bin/python" -m pip install --quiet --no-cache-dir --disable-pip-version-check cryptography bcrypt certifi >/dev/null \
+  || fail "pip could not install cryptography, bcrypt and certifi (check the network, then re-run)"
+sudo "$VENV/bin/python" -c 'import cryptography, bcrypt, certifi' >/dev/null 2>&1 \
   || fail "the python environment at $VENV is incomplete"
-ok "python environment ready at $VENV"
+printf '#!/bin/sh\nexec %s %s/protonx "$@"\n' "$VENV/bin/python" "$LIBEXEC" | sudo tee "$LIBEXEC/app-engine" >/dev/null
+sudo chmod 755 "$LIBEXEC/app-engine"
+ok "app engine ready at $LIBEXEC/app-engine"
 
 if [ -d "$ROOT/app/Sources" ]; then
   printf '\nbuilding\n--------\n'
@@ -84,12 +85,8 @@ else
 fi
 
 printf '\ninstalling app\n--------------\n'
-sudo rm -f "$CLI"
-printf '#!/bin/sh\nexec %s %s/protonx "$@"\n' "$VENV/bin/python" "$LIBEXEC" | sudo tee "$CLI" >/dev/null
-sudo chmod 755 "$CLI"
-ok "command installed at $CLI"
-
-sed "s|@PYTHON@|$VENV/bin/python|g" "$ROOT/helper/com.protonx.helper.plist" | sudo tee "$PLIST" >/dev/null
+sed -e "s|@PYTHON@|$VENV/bin/python|g" -e "s|@HELPER@|$LIBEXEC/helper/protonx_helper.py|g" \
+  "$ROOT/helper/com.protonx.helper.plist" | sudo tee "$PLIST" >/dev/null
 sudo chmod 644 "$PLIST"
 sudo launchctl bootout system/com.protonx.helper >/dev/null 2>&1 || true
 sudo launchctl bootstrap system "$PLIST"
@@ -97,15 +94,26 @@ sleep 1
 sudo launchctl print system/com.protonx.helper >/dev/null 2>&1 || fail "helper daemon failed to start"
 ok "privileged helper running"
 
-pkill -f "ProtonX.app/Contents/MacOS/ProtonX" >/dev/null 2>&1 || true
+if [ "${PROTONX_KEEP_APP:-}" != "1" ]; then
+  pkill -f "ProtonX.app/Contents/MacOS/ProtonX" >/dev/null 2>&1 || true
+fi
 sudo rm -rf "$APP_TARGET"
 sudo cp -R "$APP_SOURCE" /Applications/
 sudo xattr -dr com.apple.quarantine "$APP_TARGET" >/dev/null 2>&1 || true
 sudo codesign --force --sign - --identifier com.protonx.menubar "$APP_TARGET" >/dev/null 2>&1 || true
 ok "app installed at $APP_TARGET"
 
+LOGIN_USER="$BUILD_USER"
+if [ "$LOGIN_USER" = "root" ]; then
+  LOGIN_USER="$(stat -f%Su /dev/console 2>/dev/null || true)"
+fi
+if [ -n "$LOGIN_USER" ] && [ "$LOGIN_USER" != "root" ]; then
+  sudo -u "$LOGIN_USER" -H "$APP_TARGET/Contents/MacOS/ProtonX" --enable-login-item >/dev/null 2>&1 || true
+  ok "launch at login enabled for $LOGIN_USER"
+fi
+
 printf '\nverifying\n---------\n'
-"$CLI" doctor || true
+"$LIBEXEC/app-engine" doctor || true
 
 printf '\nDone.\n'
 printf '  1. Open ProtonX and sign in once with your Proton username and password\n'
@@ -113,4 +121,7 @@ printf '     (plus a two-factor code if you use one). The card pre-fills the use
 printf '  2. Click the shield in the menu bar: pick a country, pick a server, Connect.\n'
 printf '  3. "Reconnect" repeats your last server in one click. Proton VPN can stay\n'
 printf '     installed and signed in; only one tunnel should be up at a time.\n'
-printf '  4. In a terminal, type protonx for the interactive menu (protonx --help for flags).\n\n'
+printf '  4. The CLI is a separate install:\n'
+printf '       npm install -g protonx-cli\n'
+printf '       curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/cli/get.sh | bash\n'
+printf '  5. ProtonX starts at login; turn that off from the account menu.\n\n'

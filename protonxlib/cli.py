@@ -246,6 +246,29 @@ def cmd_status(args):
     return 0
 
 
+def cmd_update(args):
+    from . import update as updater
+
+    try:
+        status = updater.update(check_only=args.check, assume_yes=args.yes, target="app" if args.app else "cli")
+    except updater.UpdateError as error:
+        return _command_error(args, str(error), kind="update")
+    if args.json:
+        _emit(status)
+        return 0
+    if not status["update"]:
+        print("protonx %s is up to date" % status["current"])
+    elif status.get("cancelled"):
+        print("update cancelled")
+    elif status.get("installed"):
+        print("updated to protonx %s" % status["latest"])
+        print("restart ProtonX if it is running")
+    else:
+        print("protonx %s is available (current %s)" % (status["latest"], status["current"]))
+        print("run protonx update to install it")
+    return 0
+
+
 def cmd_menu(args):
     from . import repl
 
@@ -320,6 +343,11 @@ def build_parser():
     disconnect.add_argument("--json", action="store_true")
     status = sub.add_parser("status", help="show tunnel state and the last server")
     status.add_argument("--json", action="store_true")
+    update_parser = sub.add_parser("update", help="check for a newer release and install it")
+    update_parser.add_argument("--check", action="store_true", help="only report whether an update is available")
+    update_parser.add_argument("--yes", action="store_true", help="install without asking for confirmation")
+    update_parser.add_argument("--app", action="store_true", help="update the macOS app instead of the CLI")
+    update_parser.add_argument("--json", action="store_true")
     return parser
 
 
@@ -335,6 +363,7 @@ COMMANDS = {
     "connect": cmd_connect,
     "disconnect": cmd_disconnect,
     "status": cmd_status,
+    "update": cmd_update,
 }
 
 

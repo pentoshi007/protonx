@@ -21,6 +21,7 @@
     "bin/",
     "cli/",
     "helper/*.py",
+    "helper/com.protonx.helper.plist",
     "helper/protonx-helper.service",
     "protonxlib/*.py",
     "protonx"

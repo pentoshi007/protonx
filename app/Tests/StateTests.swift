@@ -75,6 +75,7 @@ private final class StubEngine: EngineAccess, @unchecked Sendable {
     func signOut() { lock.withLock { record.append("logout") } }
     func signIn(username: String, password: String) -> SignInResult { SignInResult(status: "two-factor", username: username) }
     func submitTwoFactor(_ code: String) -> SignInResult { SignInResult(status: "signed-in", username: "tester") }
+    func updateCheck() -> UpdateStatus { UpdateStatus(current: "1.1.0", latest: "1.1.0", update: false) }
 }
 
 @main @MainActor

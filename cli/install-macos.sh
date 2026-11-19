@@ -1,0 +1,89 @@
+#!/bin/bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIBEXEC="/usr/local/libexec/protonx"
+VENV="$LIBEXEC/venv"
+CLI="/usr/local/bin/protonx"
+PLIST="/Library/LaunchDaemons/com.protonx.helper.plist"
+
+info() { printf '  %s\n' "$1"; }
+ok()   { printf '[ok] %s\n' "$1"; }
+fail() { printf '[!!] %s\n' "$1"; exit 1; }
+
+printf '\nprotonx CLI installer for macOS\n-------------------------------\n'
+
+[ "$(uname -s)" = "Darwin" ] || fail "this installer is for macOS. On Linux run cli/install-linux.sh; on Windows run cli/install-windows.ps1."
+
+if [ "$(id -u)" != "0" ]; then
+  exec sudo -S "$0" "$@"
+fi
+
+find_python() {
+  local candidate
+  for candidate in "$(command -v python3 2>/dev/null || true)" \
+                   /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
+    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+    if "$candidate" -c 'import venv, ensurepip' >/dev/null 2>&1; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+PYTHON_BIN="$(find_python)" || fail "need python3 with venv and pip (xcode-select --install, or brew install python)"
+ok "python $PYTHON_BIN ($("$PYTHON_BIN" -V 2>&1 | awk '{print $2}'))"
+
+for tool in wg wg-quick; do
+  command -v "$tool" >/dev/null 2>&1 || fail "$tool missing (brew install wireguard-tools)"
+done
+ok "wireguard-tools present"
+
+printf '\ninstalling engine\n-----------------\n'
+mkdir -p "$LIBEXEC"
+rm -rf "$LIBEXEC/protonxlib" "$LIBEXEC/vendor" "$LIBEXEC/helper" "$LIBEXEC/helper.py" "$VENV"
+cp -R "$ROOT/protonxlib" "$LIBEXEC/"
+mkdir -p "$LIBEXEC/helper"
+cp "$ROOT"/helper/*.py "$LIBEXEC/helper/"
+install -m 755 "$ROOT/protonx" "$LIBEXEC/protonx"
+sed -n 's/^__version__ = "\(.*\)"/\1/p' "$ROOT/protonxlib/__init__.py" > "$LIBEXEC/VERSION"
+find "$LIBEXEC" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+chown -R root:wheel "$LIBEXEC"
+ok "engine installed to $LIBEXEC"
+
+"$PYTHON_BIN" -m venv "$VENV"
+"$VENV/bin/python" -m pip install --quiet --no-cache-dir --disable-pip-version-check --upgrade pip >/dev/null
+"$VENV/bin/python" -m pip install --quiet --no-cache-dir --disable-pip-version-check cryptography bcrypt certifi >/dev/null \
+  || fail "pip could not install cryptography, bcrypt and certifi (check the network, then re-run)"
+"$VENV/bin/python" -c 'import cryptography, bcrypt, certifi' >/dev/null 2>&1 || fail "the python environment at $VENV is incomplete"
+ok "python environment ready at $VENV"
+
+if [ -d "$ROOT/tests" ]; then
+  TEST_HOME="$(mktemp -d)"
+  (cd "$ROOT" && HOME="$TEST_HOME" PYTHONDONTWRITEBYTECODE=1 "$VENV/bin/python" -m unittest discover -s tests -t . -q >/dev/null 2>&1) \
+    || { rm -rf "$TEST_HOME"; fail "unit tests failed; run them from the checkout to see why"; }
+  rm -rf "$TEST_HOME"
+  ok "unit tests pass"
+fi
+
+printf '\ninstalling command and helper\n-----------------------------\n'
+rm -f "$CLI"
+printf '#!/bin/sh\nexec %s %s/protonx "$@"\n' "$VENV/bin/python" "$LIBEXEC" > "$CLI"
+chmod 755 "$CLI"
+ok "command installed at $CLI"
+
+sed -e "s|@PYTHON@|$VENV/bin/python|g" -e "s|@HELPER@|$LIBEXEC/helper/protonx_helper.py|g" \
+  "$ROOT/helper/com.protonx.helper.plist" > "$PLIST"
+chmod 644 "$PLIST"
+launchctl bootout system/com.protonx.helper >/dev/null 2>&1 || true
+launchctl bootstrap system "$PLIST"
+sleep 1
+launchctl print system/com.protonx.helper >/dev/null 2>&1 || fail "helper daemon failed to start"
+ok "privileged helper running"
+
+printf '\nverifying\n---------\n'
+"$CLI" doctor || true
+
+printf '\nDone. Type protonx to open the menu: sign in, pick a country and a server, connect.\n'
+printf 'The ProtonX app is separate: curl -fsSL https://raw.githubusercontent.com/pentoshi007/protonx/main/get.sh | bash\n\n'
