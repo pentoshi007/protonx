@@ -6,6 +6,10 @@ from .errors import TunnelError
 
 SOCKET_PATH = "/var/run/protonx/helper.sock"
 READ_LIMIT = 65536
+PERMISSION_HINT = (
+    "the protonx helper refused this user. On Linux, add yourself to the 'protonx' group "
+    "(sudo usermod -aG protonx $USER); on macOS, use an administrator account."
+)
 
 
 def available():
@@ -14,9 +18,7 @@ def available():
 
 def call(request, timeout=45):
     if not available():
-        raise TunnelError(
-            "protonx helper is not installed; run 'sudo ./install.sh' from the protonx folder"
-        )
+        raise TunnelError("the protonx helper is not running; re-run the protonx installer")
     connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     connection.settimeout(timeout)
     try:
@@ -27,6 +29,8 @@ def call(request, timeout=45):
         raise TunnelError("helper communication failed: %s" % error)
     finally:
         connection.close()
+    if reply.get("error") == "permission denied":
+        raise TunnelError(PERMISSION_HINT)
     if not reply.get("ok"):
         raise TunnelError(reply.get("error") or "helper rejected the request")
     return reply

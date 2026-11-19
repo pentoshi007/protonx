@@ -1,0 +1,15 @@
+[Unit]
+Description=ProtonX WireGuard helper
+After=network.target
+
+[Service]
+ExecStart=@PYTHON@ @HELPER@
+Restart=on-failure
+RestartSec=2
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

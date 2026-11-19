@@ -1,4 +1,5 @@
 import json
+import os
 import ssl
 import urllib.error
 import urllib.parse
@@ -14,13 +15,16 @@ USER_AGENT = "ProtonVPN/4.5.0 (macOS)"
 ACCEPT = "application/vnd.protonmail.v1+json"
 
 
+MACOS_CA_BUNDLE = "/etc/ssl/cert.pem"
+
+
 def _ca_file():
     try:
         import certifi
 
         return certifi.where()
     except ImportError:
-        return "/etc/ssl/cert.pem"
+        return MACOS_CA_BUNDLE if os.path.exists(MACOS_CA_BUNDLE) else None
 
 
 SSL_CONTEXT = ssl.create_default_context(cafile=_ca_file())

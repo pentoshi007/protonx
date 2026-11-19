@@ -1,7 +1,7 @@
 import base64
 from urllib.error import URLError
 
-from . import api, keychain, srp
+from . import api, credentials, srp
 from .errors import ProtonxError, SessionMissing
 
 SERVICE = "protonx"
@@ -11,8 +11,8 @@ VPN_SCOPE = "vpn"
 
 
 def store(session):
-    keychain.write_json(SERVICE, SESSION_ACCOUNT, session)
-    keychain.delete(SERVICE, PENDING_ACCOUNT)
+    credentials.write_json(SERVICE, SESSION_ACCOUNT, session)
+    credentials.delete(SERVICE, PENDING_ACCOUNT)
 
 
 def _session_from(result, username):
@@ -60,7 +60,7 @@ def sign_in(username, password, code=None):
     result = challenge(username, password)
     session = _session_from(result, username)
     if _needs_two_factor(result) and not code:
-        keychain.write_json(SERVICE, PENDING_ACCOUNT, session)
+        credentials.write_json(SERVICE, PENDING_ACCOUNT, session)
         return {"status": "two-factor", "username": username}
     if code:
         session = _submit_two_factor(session, code)
@@ -70,7 +70,7 @@ def sign_in(username, password, code=None):
 
 def finish_two_factor(code):
     try:
-        session = keychain.read_json(SERVICE, PENDING_ACCOUNT)
+        session = credentials.read_json(SERVICE, PENDING_ACCOUNT)
     except SessionMissing as error:
         raise SessionMissing("no sign-in waiting for a two-factor code; start over") from error
     session = _submit_two_factor(session, code)
@@ -80,7 +80,7 @@ def finish_two_factor(code):
 
 def current():
     try:
-        session = keychain.read_json(SERVICE, SESSION_ACCOUNT)
+        session = credentials.read_json(SERVICE, SESSION_ACCOUNT)
     except SessionMissing:
         return None
     return session if session.get("accessToken") else None
@@ -88,17 +88,17 @@ def current():
 
 def pending():
     try:
-        return keychain.read_json(SERVICE, PENDING_ACCOUNT)
+        return credentials.read_json(SERVICE, PENDING_ACCOUNT)
     except SessionMissing:
         return None
 
 
 def sign_out():
     session = current()
-    keychain.delete(SERVICE, SESSION_ACCOUNT)
-    keychain.delete(SERVICE, PENDING_ACCOUNT)
+    credentials.delete(SERVICE, SESSION_ACCOUNT)
+    credentials.delete(SERVICE, PENDING_ACCOUNT)
     if current() or pending():
-        raise ProtonxError("Could not remove the local ProtonX session from Keychain.")
+        raise ProtonxError("Could not remove the local ProtonX session.")
     if not session:
         return
     try:

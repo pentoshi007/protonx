@@ -7,7 +7,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>@PYTHON@</string>
-        <string>/usr/local/libexec/protonx/helper.py</string>
+        <string>/usr/local/libexec/protonx/helper/protonx_helper.py</string>
     </array>
     <key>UserName</key>
     <string>root</string>

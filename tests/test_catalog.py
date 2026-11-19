@@ -60,7 +60,7 @@ class CatalogTests(unittest.TestCase):
 
     def test_local_session_does_not_probe_tier_or_other_apps(self):
         with patch.multiple(cli.login, current=Mock(return_value={"username": "local"}), pending=Mock(return_value=None)), \
-             patch.multiple(cli, _tier=Mock(side_effect=AssertionError), _default_username=Mock(side_effect=AssertionError)):
+             patch.multiple(cli.service, tier=Mock(side_effect=AssertionError), default_username=Mock(side_effect=AssertionError)):
             status, snapshot = self.invoke("whoami", "--local", "--json")
         self.assertEqual(status, 0)
         self.assertEqual(snapshot, {"signedIn": True, "pending": False, "username": "local"})

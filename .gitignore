@@ -5,3 +5,5 @@ app/build/
 app/.build*/
 app/.iconset/
 vendor/
+node_modules/
+*.tgz

@@ -3,7 +3,9 @@ import os
 import tempfile
 import time
 
-CONFIG_DIR = os.path.expanduser("~/.config/protonx")
+from . import system
+
+CONFIG_DIR = system.config_dir()
 CACHE_PATH = os.path.join(CONFIG_DIR, "logicals.json")
 DEFAULT_TTL = 600
 

@@ -11,9 +11,59 @@ from unittest.mock import patch
 from tests.test_helper import helper, variant
 
 
+class FakeSystem:
+    def __init__(self, test):
+        self.test = test
+
+    def interface_name(self):
+        return "utun9" if self.test.active else None
+
+    def interface_exists(self, name):
+        self.test.events.append(("interface-check", name))
+        self.test.linger, lingering = False, self.test.linger
+        return self.test.active or lingering
+
+    def interface_address(self, name):
+        return "10.2.0.2"
+
+    def remove_interface(self, name):
+        pass
+
+    def check_bypass(self, address):
+        pass
+
+    def add_bypass(self, address):
+        pass
+
+    def remove_bypass(self):
+        pass
+
+    def current_bypass(self):
+        return None
+
+    def apply_dns(self, dns):
+        if not dns:
+            return
+        self.test.dns_state.write_text(json.dumps({"servers": self.test.dns, "applied": dns}))
+        self.test.write_dns(dns.split(", "))
+
+    def restore_dns(self):
+        if not self.test.dns_state.exists():
+            return
+        saved = json.loads(self.test.dns_state.read_text())
+        self.test.write_dns([item for item in saved["servers"] if not item.startswith("10.2.")])
+        self.test.dns_state.unlink()
+
+    def applied_dns(self):
+        if not self.test.dns_state.exists():
+            return None
+        return json.loads(self.test.dns_state.read_text())["applied"]
+
+
 class SwitchTests(unittest.TestCase):
     def setUp(self):
-        resources = self.enterContext(ExitStack())
+        resources = ExitStack()
+        self.addCleanup(resources.close)
         directory = Path(resources.enter_context(tempfile.TemporaryDirectory()))
         self.config = directory / "protonx.conf"
         self.dns_state = directory / "dns.json"
@@ -25,17 +75,13 @@ class SwitchTests(unittest.TestCase):
         self.events = []
         resources.enter_context(patch.object(helper, "SOCKET_DIR", str(directory)))
         resources.enter_context(patch.object(helper, "CONFIG_PATH", str(self.config)))
-        resources.enter_context(patch.object(helper, "DNS_STATE_PATH", str(self.dns_state)))
-        resources.enter_context(patch.object(helper, "_interface_name", lambda: "utun9" if self.active else None))
-        resources.enter_context(patch.object(helper, "_tool", lambda name: name))
-        resources.enter_context(patch.object(helper, "_primary_service", return_value="Wi-Fi"))
-        resources.enter_context(patch.object(helper, "_read_dns", side_effect=lambda _: list(self.dns)))
-        resources.enter_context(patch.object(helper, "_write_dns", side_effect=self.write_dns))
-        resources.enter_context(patch.object(helper, "_run", side_effect=self.run_tool))
+        resources.enter_context(patch.object(helper, "system", FakeSystem(self)))
+        resources.enter_context(patch.object(helper, "tool", lambda name: name))
+        resources.enter_context(patch.object(helper, "run", side_effect=self.run_tool))
         resources.enter_context(patch.object(helper, "status", side_effect=self.status))
         self.resolve = resources.enter_context(patch.object(socket, "getaddrinfo", side_effect=self.resolve_host))
 
-    def write_dns(self, service, servers):
+    def write_dns(self, servers):
         self.events.append(("dns", servers))
         self.dns = list(servers)
 
@@ -46,10 +92,6 @@ class SwitchTests(unittest.TestCase):
         return [(socket.AF_INET, socket.SOCK_DGRAM, 17, "", ("192.0.2.25", 51820))]
 
     def run_tool(self, args, check=True):
-        if args[0] == "ifconfig":
-            self.events.append(("interface-check", args[1]))
-            self.linger, lingering = False, self.linger
-            return subprocess.CompletedProcess(args, 0 if self.active or lingering else 1, "", "")
         action = args[1]
         self.events.append((action, None))
         if action == "down":
@@ -62,11 +104,6 @@ class SwitchTests(unittest.TestCase):
         host = endpoint.split(" = ", 1)[1].split(":", 1)[0]
         if self.linger or host == self.fail_endpoint:
             return subprocess.CompletedProcess(args, 1, "", "route or peer setup failed")
-        if not host[0].isdigit():
-            try:
-                host = self.resolve_host(host)[0][-1][0]
-            except socket.gaierror as error:
-                return subprocess.CompletedProcess(args, 1, "", str(error))
         self.endpoint = host
         self.active = True
         return subprocess.CompletedProcess(args, 0, "", "")
