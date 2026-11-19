@@ -2,7 +2,7 @@ import os
 import subprocess
 import time
 
-from . import netstate, system, wgconf
+from . import elevate, netstate, system, wgconf
 from .errors import TunnelError
 
 TUNNEL = "protonx"
@@ -14,8 +14,8 @@ STOP_TIMEOUT = 10
 SERVICE_MISSING = 1060
 INSTALL_HINT = "WireGuard for Windows is not installed. Install it with: winget install WireGuard.WireGuard"
 ADMIN_HINT = (
-    "connecting on Windows needs an Administrator terminal. Right-click your terminal, "
-    "choose 'Run as administrator', then run protonx again."
+    "the tunnel needs Administrator rights and Windows did not grant them. Approve the permission "
+    "prompt, or run the terminal as Administrator and try again."
 )
 
 
@@ -41,11 +41,6 @@ def _run(args, check=True):
         detail = (result.stderr or result.stdout).strip()
         raise TunnelError("%s failed: %s" % (os.path.basename(args[0]), detail))
     return result
-
-
-def _require_admin():
-    if not system.is_admin():
-        raise TunnelError(ADMIN_HINT)
 
 
 def _service_state():
@@ -132,9 +127,7 @@ def _previous():
         return None
 
 
-def up(settings):
-    _require_admin()
-    _executable("wireguard.exe")
+def _up(settings):
     try:
         fields = wgconf.validate(settings)
     except wgconf.ConfigError as error:
@@ -166,17 +159,15 @@ def up(settings):
     raise TunnelError("%s. The system was restored to its normal network settings." % last_error) from last_error
 
 
-def down():
+def _down():
     if _service_state() is not None:
-        _require_admin()
         _uninstall()
     if os.path.exists(CONFIG_PATH):
         os.unlink(CONFIG_PATH)
     return status()
 
 
-def repair():
-    _require_admin()
+def _repair():
     actions = []
     if _service_state() is not None:
         _uninstall()
@@ -189,3 +180,41 @@ def repair():
     report["resolves"] = netstate.resolves("apple.com")
     report["internet"] = netstate.internet()
     return report
+
+
+def run_local(operation, payload=None):
+    """Run one privileged tunnel operation inside this already-elevated process."""
+    if operation not in ("up", "down", "repair"):
+        raise TunnelError("unknown tunnel operation: %s" % operation)
+    if not system.is_admin():
+        raise TunnelError(ADMIN_HINT)
+    if operation == "up":
+        return _up(payload)
+    if operation == "down":
+        return _down()
+    return _repair()
+
+
+def _privileged(operation, payload=None):
+    if system.is_admin():
+        return run_local(operation, payload)
+    return elevate.run(operation, payload)
+
+
+def up(settings):
+    _executable("wireguard.exe")
+    try:
+        wgconf.validate(settings)
+    except wgconf.ConfigError as error:
+        raise TunnelError(str(error)) from error
+    return _privileged("up", settings)
+
+
+def down():
+    if _service_state() is None and not os.path.exists(CONFIG_PATH):
+        return status()
+    return _privileged("down")
+
+
+def repair():
+    return _privileged("repair")

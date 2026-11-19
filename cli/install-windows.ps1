@@ -79,4 +79,5 @@ Ok 'command installed: protonx'
 Write-Host "`nverifying`n---------"
 & $VenvPython (Join-Path $Engine 'protonx') doctor
 
-Write-Host "`nDone. Open a new terminal as Administrator (needed to start the tunnel) and type: protonx`n"
+Write-Host "`nDone. Type protonx to open the menu: sign in, pick a country and a server, connect."
+Write-Host "Windows asks for permission the first time you connect; you do not need to open the terminal as Administrator.`n"

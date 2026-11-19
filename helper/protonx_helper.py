@@ -24,6 +24,9 @@ SOCKET_PATH = os.path.join(SOCKET_DIR, "helper.sock")
 CONFIG_PATH = os.path.join(host.state_dir(), "protonx.conf")
 TUNNEL_LOCK = threading.Lock()
 MAX_MESSAGE = 16384
+REQUEST_TIMEOUT = 10
+DRAIN_TIMEOUT = 1.0
+TOO_LARGE = {"ok": False, "error": "request too large"}
 INTERFACE_EXIT_TIMEOUT = 2
 START_ATTEMPTS = 2
 RETRY_DELAY = 0.6
@@ -293,28 +296,73 @@ def dispatch(request):
     raise HelperError("unknown command: %s" % command)
 
 
+def _log(message):
+    sys.stderr.write("protonx-helper: %s\n" % message)
+    sys.stderr.flush()
+
+
 def _reply(connection, payload):
     connection.sendall(json.dumps(payload).encode() + b"\n")
 
 
+def _receive(connection):
+    """Read the whole request, discarding anything past MAX_MESSAGE.
+
+    Replying while the request is still queued in our receive buffer makes the
+    kernel answer with RST instead of a clean shutdown, and the client then
+    loses the reply. A handler that dies before reading ends in exactly that.
+    """
+    payload = b""
+    while not payload.endswith(b"\n"):
+        if len(payload) >= MAX_MESSAGE:
+            return payload, False
+        chunk = connection.recv(4096)
+        if not chunk:
+            break
+        payload += chunk
+    return payload, True
+
+
+def _quench(connection):
+    """Drain a request the client is still sending so closing does not reset the reply."""
+    try:
+        connection.settimeout(DRAIN_TIMEOUT)
+        while connection.recv(65536):
+            pass
+    except OSError:
+        pass
+
+
+def _handle(connection, payload):
+    if not system.may_control(system.peer_uid(connection)):
+        return {"ok": False, "error": "permission denied"}
+    try:
+        request = json.loads(payload.decode("utf-8") or "{}")
+    except ValueError as error:
+        return {"ok": False, "error": "unreadable request: %s" % error}
+    try:
+        return dispatch(request)
+    except HelperError as error:
+        return {"ok": False, "error": str(error)}
+
+
 def _respond(connection):
+    complete = True
     with connection:
-        if not system.may_control(system.peer_uid(connection)):
-            _reply(connection, {"ok": False, "error": "permission denied"})
-            return
-        payload = b""
-        while not payload.endswith(b"\n") and len(payload) < MAX_MESSAGE:
-            chunk = connection.recv(4096)
-            if not chunk:
-                break
-            payload += chunk
         try:
-            response = dispatch(json.loads(payload.decode("utf-8") or "{}"))
-        except (ValueError, HelperError) as error:
-            response = {"ok": False, "error": str(error)}
+            connection.settimeout(REQUEST_TIMEOUT)
+            payload, complete = _receive(connection)
+            response = _handle(connection, payload) if complete else TOO_LARGE
         except Exception as error:
+            complete = False
+            _log("request failed: %r" % error)
             response = {"ok": False, "error": "unexpected failure: %s" % error}
-        _reply(connection, response)
+        try:
+            _reply(connection, response)
+        except OSError as error:
+            _log("could not answer the client: %s" % error)
+        if not complete:
+            _quench(connection)
 
 
 def serve():

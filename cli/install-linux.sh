@@ -123,6 +123,7 @@ getent group "$GROUP" >/dev/null || groupadd --system "$GROUP"
 if [ -n "$TARGET_USER" ]; then
   usermod -aG "$GROUP" "$TARGET_USER"
   ok "$TARGET_USER may control the tunnel (group $GROUP)"
+  info "log out and back in, or run 'newgrp $GROUP', so your current shell gets the group"
 else
   info "add users who may connect to the '$GROUP' group: usermod -aG $GROUP NAME"
 fi

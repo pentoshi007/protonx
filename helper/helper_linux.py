@@ -18,6 +18,8 @@ RESOLV_CONF = "/etc/resolv.conf"
 RESOLVED_STUB = "/run/systemd/resolve/stub-resolv.conf"
 SYS_NET = "/sys/class/net"
 CONTROL_GROUP = "protonx"
+# Linux defines this on socket; the literal keeps older interpreters working.
+SO_PEERCRED = getattr(socket, "SO_PEERCRED", 17)
 BYPASS_PRIORITY = 5180
 RESOLV_HEADER = netstate.RESOLV_HEADER
 BYPASS_RULE = re.compile(r"^%d:\s+from (\S+) lookup main\b" % BYPASS_PRIORITY)

@@ -78,6 +78,8 @@ The installer handles the system packages and installs a systemd helper. Only ro
 sudo usermod -aG protonx NAME
 ```
 
+A group change only reaches new logins: after adding yourself, run `newgrp protonx` or log out and back in before connecting.
+
 ### Windows
 
 ```powershell
@@ -90,7 +92,7 @@ From a checkout:
 powershell -ExecutionPolicy Bypass -File cli\install-windows.ps1
 ```
 
-The installer installs Python and WireGuard via winget if they are missing. Connecting needs an Administrator terminal.
+The installer installs Python and WireGuard via winget if they are missing. The first time you connect, Windows asks for permission: approve the prompt and the terminal keeps running. You do not need to open the terminal as Administrator.
 
 ### npm
 
@@ -173,7 +175,8 @@ The app and CLI update separately.
 | Internet stops after a crash, reboot, or update | Run `protonx repair` (or `Repair Network` in the app). It stops any tunnel, restores DNS, flushes the resolver cache, and reports whether DNS and the internet work. |
 | Menu-bar shield missing | `open -a ProtonX`; check `Launch at Login` in the account menu. |
 | SSH session drops on Linux | Keep the SSH guard on in Settings. macOS and Windows do not have the guard; connect from a local terminal. |
-| Windows cannot connect | Start the terminal as Administrator. |
+| Linux says the helper refused this user | You are not in the `protonx` group in this session. Run `sudo usermod -aG protonx $USER`, then `newgrp protonx` or log out and back in. |
+| Windows cannot connect | Approve the Windows permission prompt. If you declined it, run `protonx connect` again, or open the terminal as Administrator. |
 
 ## Uninstall
 

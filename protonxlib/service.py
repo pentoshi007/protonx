@@ -239,10 +239,21 @@ def _wireguard_check():
 
 def _tunnel_check():
     if system.IS_WINDOWS:
-        return ("admin", "yes" if system.is_admin() else "no (needed to connect)", system.is_admin())
+        from . import elevate
+
+        if system.is_admin():
+            return ("admin", "elevated", True)
+        if elevate.available():
+            return ("admin", "Windows will ask for permission when you connect", True)
+        return ("admin", "elevation helper missing; reinstall protonx", False)
     from . import helper
 
-    return ("helper", helper.SOCKET_PATH if helper.available() else "not installed", helper.available())
+    if not helper.available():
+        return ("helper", "not installed", False)
+    problem = helper.group_problem()
+    if problem:
+        return ("helper", problem, False)
+    return ("helper", helper.SOCKET_PATH, True)
 
 
 def _dns_check():

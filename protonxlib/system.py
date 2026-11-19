@@ -19,7 +19,9 @@ def name():
 
 def config_dir():
     if IS_WINDOWS:
-        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+        # An elevated process can start with a reduced environment, so fall back
+        # to the profile directory instead of writing next to the working dir.
+        base = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Roaming")
         return os.path.join(base, "protonx")
     return os.path.expanduser("~/.config/protonx")
 
