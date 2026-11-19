@@ -99,6 +99,42 @@ class MacDnsFailSafeTests(unittest.TestCase):
         self.assertEqual(self.written, [("Wi-Fi", ["192.168.31.1"])])
 
 
+class LinuxDnsFailSafeTests(unittest.TestCase):
+    def setUp(self):
+        import helper_linux
+
+        self.linux = helper_linux
+        self.directory = tempfile.mkdtemp()
+        self.resolv = os.path.join(self.directory, "resolv.conf")
+        self.stub = os.path.join(self.directory, "stub-resolv.conf")
+        self.patches = [
+            mock.patch.object(helper_linux, "RESOLV_CONF", self.resolv),
+            mock.patch.object(helper_linux, "RESOLVED_STUB", self.stub),
+            mock.patch.object(helper_linux, "DNS_STATE_PATH", os.path.join(self.directory, "dns.json")),
+            mock.patch.object(helper_linux, "interface_exists", return_value=False),
+        ]
+        for patcher in self.patches:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_restore_without_snapshot_replaces_protonx_resolv_with_stub(self):
+        with open(self.stub, "w") as handle:
+            handle.write("nameserver 127.0.0.53\n")
+        with open(self.resolv, "w") as handle:
+            handle.write(self.linux.RESOLV_HEADER + "nameserver 10.2.0.1\n")
+        self.linux.restore_dns()
+        self.assertTrue(os.path.islink(self.resolv))
+        self.assertEqual(os.readlink(self.resolv), self.stub)
+
+    def test_restore_without_snapshot_leaves_normal_resolv_alone(self):
+        with open(self.resolv, "w") as handle:
+            handle.write("nameserver 192.168.1.1\n")
+        self.linux.restore_dns()
+        self.assertFalse(os.path.islink(self.resolv))
+        with open(self.resolv) as handle:
+            self.assertIn("192.168.1.1", handle.read())
+
+
 class HelperLifecycleTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
