@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERSION="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "$ROOT/protonxlib/__init__.py")"
 OUT="${OUT_DIR:-$ROOT/dist}"
 NAME="protonx-$VERSION-macos-universal"
-STAGE="$OUT/$NAME"
+STAGE="$OUT/protonx-$VERSION"
 REQUIRED=(
   install.sh
   uninstall.sh
@@ -46,6 +46,15 @@ done
 [ "$missing" = 0 ] || { printf 'refusing to package an incomplete release\n' >&2; exit 1; }
 
 rm -rf "$OUT/build"
-tar -czf "$OUT/$NAME.tar.gz" -C "$OUT" "$NAME"
+tar -czf "$OUT/$NAME.tar.gz" -C "$OUT" "protonx-$VERSION"
 (cd "$OUT" && shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256")
+
+CHECK="$(mktemp -d)"
+tar -xzf "$OUT/$NAME.tar.gz" -C "$CHECK"
+[ -x "$CHECK/protonx-$VERSION/install.sh" ] || {
+  printf 'the archive does not unpack to protonx-%s/install.sh, which get.sh and protonx update both need\n' "$VERSION" >&2
+  rm -rf "$CHECK"
+  exit 1
+}
+rm -rf "$CHECK"
 printf '%s\n%s\n' "$OUT/$NAME.tar.gz" "$OUT/$NAME.tar.gz.sha256"
