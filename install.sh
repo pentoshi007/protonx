@@ -19,6 +19,10 @@ if [ "$(id -u)" != "0" ]; then
   exec sudo -S "$0" "$@"
 fi
 
+for entry in helper/com.protonx.helper.plist helper/protonx_helper.py protonxlib/__init__.py protonx; do
+  [ -e "$ROOT/$entry" ] || fail "this release is incomplete: $entry is missing from $ROOT. Download it again."
+done
+
 BUILD_USER="${SUDO_USER:-root}"
 run_as_user() {
   if [ "$(id -u)" = "0" ] && [ "$BUILD_USER" != "root" ]; then
@@ -130,8 +134,15 @@ ok "app engine ready at $LIBEXEC/app-engine"
 
 if [ -d "$ROOT/app/Sources" ]; then
   printf '\nbuilding\n--------\n'
-  run_as_user env PYTHONDONTWRITEBYTECODE=1 "$VENV/bin/python" -m unittest discover -s "$ROOT/tests" -t "$ROOT" -q >/dev/null
-  ok "unit tests pass"
+  TEST_LOG="$(mktemp)"
+  if run_as_user env PYTHONDONTWRITEBYTECODE=1 "$VENV/bin/python" -m unittest discover -s "$ROOT/tests" -t "$ROOT" -q >"$TEST_LOG" 2>&1; then
+    ok "unit tests pass"
+  else
+    tail -n 25 "$TEST_LOG" >&2 || true
+    rm -f "$TEST_LOG"
+    fail "unit tests failed; the output above names them"
+  fi
+  rm -f "$TEST_LOG"
   run_as_user "$ROOT/app/build.sh" >/dev/null
   APP_SOURCE="$ROOT/app/build/ProtonX.app"
   ok "universal app built"

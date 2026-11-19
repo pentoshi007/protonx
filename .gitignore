@@ -8,3 +8,4 @@ app/.iconset/
 vendor/
 node_modules/
 *.tgz
+dist/

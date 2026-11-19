@@ -19,6 +19,10 @@ if [ "$(id -u)" != "0" ]; then
   exec sudo -S "$0" "$@"
 fi
 
+for entry in helper/com.protonx.helper.plist helper/protonx_helper.py protonxlib/__init__.py protonx; do
+  [ -e "$ROOT/$entry" ] || fail "this release is incomplete: $entry is missing from $ROOT. Download it again."
+done
+
 find_python() {
   local candidate
   for candidate in "$(command -v python3 2>/dev/null || true)" \
@@ -118,10 +122,15 @@ ok "python environment ready at $VENV"
 
 if [ -d "$ROOT/tests" ]; then
   TEST_HOME="$(mktemp -d)"
-  (cd "$ROOT" && HOME="$TEST_HOME" PYTHONDONTWRITEBYTECODE=1 "$VENV/bin/python" -m unittest discover -s tests -t . -q >/dev/null 2>&1) \
-    || { rm -rf "$TEST_HOME"; fail "unit tests failed; run them from the checkout to see why"; }
-  rm -rf "$TEST_HOME"
-  ok "unit tests pass"
+  TEST_LOG="$(mktemp)"
+  if (cd "$ROOT" && HOME="$TEST_HOME" PYTHONDONTWRITEBYTECODE=1 "$VENV/bin/python" -m unittest discover -s tests -t . -q >"$TEST_LOG" 2>&1); then
+    ok "unit tests pass"
+  else
+    tail -n 25 "$TEST_LOG" >&2 || true
+    rm -rf "$TEST_HOME" "$TEST_LOG"
+    fail "unit tests failed; the output above names them"
+  fi
+  rm -rf "$TEST_HOME" "$TEST_LOG"
 fi
 
 printf '\ninstalling command and helper\n-----------------------------\n'

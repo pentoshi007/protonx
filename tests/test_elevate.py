@@ -63,9 +63,9 @@ class PrivilegedDispatchTests(unittest.TestCase):
         launcher.assert_not_called()
 
     def test_disconnect_with_a_tunnel_elevates(self):
-        with mock.patch.object(tunnel_windows, "_service_state", return_value="RUNNING"), mock.patch.object(
-            elevate, "run", return_value={"up": False}
-        ) as launcher:
+        with mock.patch.object(system, "is_admin", return_value=False), mock.patch.object(
+            tunnel_windows, "_service_state", return_value="RUNNING"
+        ), mock.patch.object(elevate, "run", return_value={"up": False}) as launcher:
             tunnel_windows.down()
         launcher.assert_called_once_with("down", None)
 
