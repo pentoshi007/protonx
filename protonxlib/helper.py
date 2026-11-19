@@ -55,9 +55,16 @@ def status():
     return call({"command": "status"})
 
 
-def up(config):
-    return call({"command": "up", "config": config})
+def up(config, meta=None):
+    request = {"command": "up", "config": config}
+    if meta:
+        request["meta"] = meta
+    return call(request)
 
 
 def down():
     return call({"command": "down"})
+
+
+def repair():
+    return call({"command": "repair"}, timeout=60)

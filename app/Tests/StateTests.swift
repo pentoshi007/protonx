@@ -15,7 +15,7 @@ private func sample(fresh: Bool = true) -> Catalog {
 
 private func snapshot(_ target: Destination? = nil) -> Status {
     let server = target.map { LastServer(country: $0.country, server: $0.server, label: $0.server, city: "Test", connectedAt: nil) }
-    return Status(up: server != nil, interface: server.map { _ in "utun1" }, address: nil, peer: nil, server: server)
+    return Status(up: server != nil, interface: server.map { _ in "utun1" }, address: nil, peer: nil, server: server, dns: nil)
 }
 
 private final class StubEngine: EngineAccess, @unchecked Sendable {
@@ -24,19 +24,24 @@ private final class StubEngine: EngineAccess, @unchecked Sendable {
     let live: @Sendable () throws -> Catalog
     let connectGate: DispatchSemaphore?
     let disconnectError: EngineError?
+    let repairReply: @Sendable () throws -> RepairReport
     private let lock = NSLock()
     private var connected: Destination?
     private var record: [String] = []
 
     init(account: @escaping @Sendable () throws -> Account = { signedIn }, local: Catalog? = nil,
          live: @escaping @Sendable () throws -> Catalog = { sample() }, connected: Destination? = nil,
-         connectGate: DispatchSemaphore? = nil, disconnectError: EngineError? = nil) {
+         connectGate: DispatchSemaphore? = nil, disconnectError: EngineError? = nil,
+         repairReply: @escaping @Sendable () throws -> RepairReport = {
+             RepairReport(ok: true, actions: ["flushed the DNS cache"], resolves: true, internet: true, dns: nil)
+         }) {
         self.accountReply = account
         self.local = local
         self.live = live
         self.connected = connected
         self.connectGate = connectGate
         self.disconnectError = disconnectError
+        self.repairReply = repairReply
     }
 
     var calls: [String] { lock.withLock { record } }
@@ -76,6 +81,11 @@ private final class StubEngine: EngineAccess, @unchecked Sendable {
     func signIn(username: String, password: String) -> SignInResult { SignInResult(status: "two-factor", username: username) }
     func submitTwoFactor(_ code: String) -> SignInResult { SignInResult(status: "signed-in", username: "tester") }
     func updateCheck() -> UpdateStatus { UpdateStatus(current: "1.1.0", latest: "1.1.0", update: false) }
+
+    func repair() throws -> RepairReport {
+        lock.withLock { record.append("repair") }
+        return try repairReply()
+    }
 }
 
 @main @MainActor
@@ -89,10 +99,11 @@ private enum StateTests {
         try await switchUsesOneMutationAndResumesPolling()
         try await signOutDisconnectsBeforeRemovingSession()
         try await failedDisconnectPreventsLogout()
+        try await repairRestoresNetworkAndRefreshesStatus()
         savedServersPersistAndSearchUsesServerData()
         saveControlTogglesThroughTheButton()
         try await searchControlFiltersTheTable()
-        print("10 ProtonX state scenarios passed")
+        print("11 ProtonX state scenarios passed")
     }
 
     static func restoredSessionStaysInCheckState() async throws {
@@ -208,6 +219,18 @@ private enum StateTests {
         state.signOut()
         try await until { state.notice == "could not disconnect" }
         require(state.session.signedIn && state.isUp && !engine.calls.contains("logout"), "failed disconnect protects the live session")
+    }
+
+    static func repairRestoresNetworkAndRefreshesStatus() async throws {
+        let engine = StubEngine(local: sample(), connected: nl)
+        let state = AppState(engine: engine)
+        state.start()
+        try await until { state.isUp && state.catalog != nil }
+        state.repair()
+        require(state.operation == .repairing, "repair holds the tunnel writer")
+        try await until { state.operation == nil && state.notice?.contains("repaired") == true }
+        require(engine.calls.contains("repair"), "repair command ran")
+        require(state.notice?.contains("internet reachable") == true, "repair reports connectivity")
     }
 
     static func savedServersPersistAndSearchUsesServerData() {

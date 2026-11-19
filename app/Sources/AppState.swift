@@ -35,6 +35,7 @@ final class AppState {
     deinit { timer?.invalidate() }
 
     var isUp: Bool { status?.up == true }
+    var dnsStale: Bool { status?.dns?.stale == true }
     var activeDestination: Destination? { isUp ? status?.server?.destination : nil }
     var canConnect: Bool { session.signedIn && status != nil && operation == nil }
     var canDisconnect: Bool { isUp && operation == nil }
@@ -119,6 +120,30 @@ final class AppState {
 
     func checkForUpdates(_ completion: @escaping (Result<UpdateStatus, Error>) -> Void) {
         run({ engine in Result { try engine.updateCheck() } }, completion)
+    }
+
+    func repair(_ completion: ((Result<RepairReport, Error>) -> Void)? = nil) {
+        guard operation == nil else { return }
+        tunnelRevision += 1
+        operation = .repairing
+        notice = nil
+        updatePolling()
+        onChange?()
+        run({ engine in Result { try engine.repair() } }) { [weak self] result in
+            guard let self else { return }
+            self.operation = nil
+            switch result {
+            case .success(let report):
+                self.notice = report.internet
+                    ? "Network repaired · DNS restored · internet reachable"
+                    : "Repair finished · DNS restored · internet still unreachable"
+            case .failure(let error):
+                self.notice = "Repair failed: \(error.localizedDescription)"
+            }
+            self.refreshStatus()
+            self.onChange?()
+            completion?(result)
+        }
     }
 
     func server(for destination: Destination) -> Server? {

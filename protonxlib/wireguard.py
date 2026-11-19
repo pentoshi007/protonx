@@ -52,8 +52,10 @@ def available():
     return backend.available()
 
 
-def up(settings):
-    return backend.up(settings)
+def up(settings, meta=None):
+    if system.IS_WINDOWS:
+        return backend.up(settings)
+    return backend.up(settings, meta)
 
 
 def down():
@@ -62,6 +64,10 @@ def down():
 
 def status():
     return backend.status()
+
+
+def repair():
+    return backend.repair()
 
 
 def peer(settings):

@@ -114,9 +114,9 @@ protonx whoami --json
 
 ## Use the app
 
-Click the shield in the menu bar. Pick a country, then `Connect to fastest` or a specific server. While connected, the card shows the server, interface, handshake age and traffic. `Disconnect` tears the tunnel down; the last server is remembered. `Reconnect` repeats it.
+Click the shield in the menu bar. Pick a country, then `Connect to fastest` or a specific server. While connected, the card shows the server, interface, handshake age and traffic. `Disconnect` tears the tunnel down; the last server is remembered. `Reconnect` repeats it. If you quit and reopen the app, it reads the live tunnel and shows the active server instead of starting from disconnected.
 
-The account menu has `Launch at Login`, `Check for Updates…` and `Sign Out…`.
+The account menu has `Launch at Login`, `Repair Network`, `Check for Updates…` and `Sign Out…`.
 
 ## Use the CLI
 
@@ -128,6 +128,7 @@ Type `protonx` for the interactive menu. Move with the arrow keys and Enter; Esc
 - Settings: show Plus servers, P2P only, Proton DNS, and on Linux the SSH guard.
 - Account: plan and sign out.
 - Check setup: dependencies, helper and session.
+- Repair network: stop the tunnel, restore DNS and check that the internet works.
 - Check for updates: install the latest CLI.
 
 ## Commands
@@ -140,6 +141,7 @@ protonx connect --country NL --server NL-FREE#1
 protonx connect --restore
 protonx status --json
 protonx disconnect
+protonx repair
 protonx update --check
 protonx update
 ```
@@ -167,7 +169,8 @@ The app and CLI update separately.
 | Sign-in fails | Wrong credentials return code 8002. If Proton asks for a captcha, sign in once at account.proton.me. |
 | "the protonx helper is not running" | Re-run the installer: `get.sh` for the app, `cli/get.sh` for the CLI. |
 | Country list is empty | Sign in, then refresh. |
-| Connects but no internet | Disconnect and reconnect; the helper restores DNS. If an old build left DNS broken: `sudo networksetup -setdnsservers Wi-Fi Empty`. |
+| Connects but no internet | Disconnect and reconnect. If DNS is still stale, run `protonx repair` or choose `Repair Network` in the app. |
+| Internet stops after a crash, reboot, or update | Run `protonx repair` (or `Repair Network` in the app). It stops any tunnel, restores DNS, flushes the resolver cache, and reports whether DNS and the internet work. |
 | Menu-bar shield missing | `open -a ProtonX`; check `Launch at Login` in the account menu. |
 | SSH session drops on Linux | Keep the SSH guard on in Settings. macOS and Windows do not have the guard; connect from a local terminal. |
 | Windows cannot connect | Start the terminal as Administrator. |

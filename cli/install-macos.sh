@@ -40,6 +40,63 @@ for tool in wg wg-quick; do
 done
 ok "wireguard-tools present"
 
+stop_tunnel() {
+  local stopped=0
+  if [ -x "$CLI" ]; then
+    "$CLI" disconnect >/dev/null 2>&1 && stopped=1 || true
+  fi
+  if [ -x /usr/local/libexec/protonx-app/app-engine ]; then
+    /usr/local/libexec/protonx-app/app-engine disconnect >/dev/null 2>&1 && stopped=1 || true
+  fi
+  if [ "$stopped" = "0" ] && [ -S /var/run/protonx/helper.sock ]; then
+    "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1 && stopped=1 || true
+import json, socket
+connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+connection.settimeout(30)
+connection.connect("/var/run/protonx/helper.sock")
+connection.sendall(b'{"command":"down"}\n')
+reply = connection.recv(65536)
+raise SystemExit(0 if json.loads(reply).get("ok") else 1)
+PY
+  fi
+  local config="/Library/Application Support/ProtonX/protonx.conf"
+  if [ "$stopped" = "0" ] && [ -f "$config" ]; then
+    wg-quick down "$config" >/dev/null 2>&1 || true
+    rm -f /var/run/wireguard/protonx.name
+    "$PYTHON_BIN" - "$ROOT" <<'PY' >/dev/null 2>&1 || true
+import sys
+root = sys.argv[1]
+sys.path.insert(0, root)
+sys.path.insert(0, root + "/helper")
+import helper_macos
+helper_macos.restore_dns()
+PY
+    rm -f "$config" "/Library/Application Support/ProtonX/tunnel.json"
+    stopped=1
+  fi
+  if [ "$stopped" = "1" ]; then
+    ok "stopped the active tunnel and restored DNS"
+  else
+    ok "no active tunnel"
+  fi
+}
+
+start_helper() {
+  launchctl bootout system/com.protonx.helper >/dev/null 2>&1 || true
+  sleep 1
+  if ! launchctl bootstrap system "$PLIST" >/dev/null 2>&1; then
+    sleep 1
+    launchctl bootout system/com.protonx.helper >/dev/null 2>&1 || true
+    sleep 1
+    launchctl bootstrap system "$PLIST" >/dev/null 2>&1 || fail "helper daemon failed to start"
+  fi
+  sleep 1
+  launchctl print system/com.protonx.helper >/dev/null 2>&1 || fail "helper daemon failed to start"
+}
+
+printf '\nstopping any active tunnel\n--------------------------\n'
+stop_tunnel
+
 printf '\ninstalling engine\n-----------------\n'
 mkdir -p "$LIBEXEC"
 rm -rf "$LIBEXEC/protonxlib" "$LIBEXEC/vendor" "$LIBEXEC/helper" "$LIBEXEC/helper.py" "$VENV"
@@ -68,6 +125,7 @@ if [ -d "$ROOT/tests" ]; then
 fi
 
 printf '\ninstalling command and helper\n-----------------------------\n'
+stop_tunnel
 rm -f "$CLI"
 printf '#!/bin/sh\nexec %s %s/protonx "$@"\n' "$VENV/bin/python" "$LIBEXEC" > "$CLI"
 chmod 755 "$CLI"
@@ -76,10 +134,7 @@ ok "command installed at $CLI"
 sed -e "s|@PYTHON@|$VENV/bin/python|g" -e "s|@HELPER@|$LIBEXEC/helper/protonx_helper.py|g" \
   "$ROOT/helper/com.protonx.helper.plist" > "$PLIST"
 chmod 644 "$PLIST"
-launchctl bootout system/com.protonx.helper >/dev/null 2>&1 || true
-launchctl bootstrap system "$PLIST"
-sleep 1
-launchctl print system/com.protonx.helper >/dev/null 2>&1 || fail "helper daemon failed to start"
+start_helper
 ok "privileged helper running"
 
 printf '\nverifying\n---------\n'

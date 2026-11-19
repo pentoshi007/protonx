@@ -10,6 +10,7 @@ protocol EngineAccess: Sendable {
     func submitTwoFactor(_ code: String) throws -> SignInResult
     func signOut() throws
     func updateCheck() throws -> UpdateStatus
+    func repair() throws -> RepairReport
 }
 
 private struct DisconnectReport: Decodable {
@@ -22,6 +23,8 @@ private struct HelperReport: Decodable {
     let interface: String?
     let address: String?
     let peers: [HelperPeer]
+    let server: LastServer?
+    let dns: DNSReport?
 }
 
 private struct HelperPeer: Decodable {
@@ -67,7 +70,7 @@ struct Engine: EngineAccess {
             Peer(latestHandshake: $0.latestHandshake, rxBytes: $0.rxBytes, txBytes: $0.txBytes)
         }
         return Status(up: decoded.up, interface: decoded.interface, address: decoded.address,
-                      peer: peer, server: HelperSocket.lastServer())
+                      peer: peer, server: decoded.server ?? HelperSocket.lastServer(), dns: decoded.dns)
     }
 
     func catalog(offline: Bool) throws -> Catalog {
@@ -94,6 +97,10 @@ struct Engine: EngineAccess {
 
     func updateCheck() throws -> UpdateStatus {
         try decode(UpdateStatus.self, ["update", "--check", "--json"], timeout: 30)
+    }
+
+    func repair() throws -> RepairReport {
+        try decode(RepairReport.self, ["repair", "--json"], timeout: 60)
     }
 
     func signIn(username: String, password: String) throws -> SignInResult {

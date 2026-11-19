@@ -36,3 +36,11 @@ def write_private(path, text):
         handle.write(text)
     os.chmod(temporary, 0o600)
     os.replace(temporary, path)
+
+
+def write_public(path, text):
+    temporary = path + ".new"
+    with open(temporary, "w") as handle:
+        handle.write(text)
+    os.chmod(temporary, 0o644)
+    os.replace(temporary, path)

@@ -27,6 +27,7 @@ for arch in arm64 x86_64; do
         -framework AppKit \
         -framework Foundation
 done
+rm -f "$BUILD/ProtonX"
 lipo -create "$BUILD/ProtonX-arm64" "$BUILD/ProtonX-x86_64" -output "$BUILD/ProtonX"
 rm -f "$BUILD/ProtonX-arm64" "$BUILD/ProtonX-x86_64"
 

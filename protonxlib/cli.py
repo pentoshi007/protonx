@@ -4,9 +4,9 @@ import json
 import sys
 from urllib.error import URLError
 
-from . import __version__, catalog, login, selection, service, wireguard
+from . import __version__, catalog, login, recovery, selection, service, wireguard
 from .countries import NAMES
-from .errors import ProtonxError, SessionExpired, SessionMissing
+from .errors import ProtonxError, SessionExpired, SessionMissing, TunnelError
 
 
 def _print_table(rows, headers):
@@ -205,7 +205,7 @@ def cmd_connect(args):
         return 0
     print("server    %s (%s)" % (payload["label"], payload["city"]))
     print("endpoint  %s" % payload["endpoint"])
-    print("tunnel    up · %s · %s" % (payload.get("interface"), payload.get("address")))
+    print("tunnel    up · %s · %s%s" % (payload.get("interface"), payload.get("address"), " · retried" if payload.get("retried") else ""))
     print("identity  %s... %s" % (payload["identity"], payload["registration"]))
     if payload.get("ssh_guard"):
         print("ssh       replies from %s stay outside the tunnel" % payload["ssh_guard"])
@@ -218,6 +218,8 @@ def cmd_disconnect(args):
         _emit(payload)
         return 0
     print("tunnel    down")
+    for warning in payload.get("warnings", []):
+        print("warning   %s" % warning)
     return 0
 
 
@@ -237,6 +239,8 @@ def cmd_status(args):
     if not payload["up"]:
         suffix = " · last %s" % saved["label"] if saved else ""
         print("vpn        down" + suffix)
+        if (payload.get("dns") or {}).get("stale"):
+            print("warning    DNS is still pointed at the VPN. Run: protonx repair")
         return 0
     print("vpn        up · %s" % payload["interface"])
     if saved:
@@ -244,6 +248,23 @@ def cmd_status(args):
     print("address    %s" % payload["address"])
     print("handshake  %s" % _handshake_text(payload["peer"]))
     return 0
+
+
+def cmd_repair(args):
+    try:
+        payload = service.repair()
+    except TunnelError as error:
+        return _command_error(args, "%s\n%s" % (error, recovery.manual_hint()), kind="repair")
+    if args.json:
+        _emit(payload)
+        return 0
+    dns = payload.get("dns") or {}
+    print("tunnel    down")
+    print("dns       %s" % ("restored" if not dns.get("stale") else "still stale"))
+    print("internet  %s" % ("reachable" if payload.get("internet") else "not reachable"))
+    for action in payload.get("actions", []):
+        print("  - %s" % action)
+    return 0 if payload.get("internet") else 1
 
 
 def cmd_update(args):
@@ -343,6 +364,8 @@ def build_parser():
     disconnect.add_argument("--json", action="store_true")
     status = sub.add_parser("status", help="show tunnel state and the last server")
     status.add_argument("--json", action="store_true")
+    repair = sub.add_parser("repair", help="stop the tunnel and restore DNS and internet access")
+    repair.add_argument("--json", action="store_true")
     update_parser = sub.add_parser("update", help="check for a newer release and install it")
     update_parser.add_argument("--check", action="store_true", help="only report whether an update is available")
     update_parser.add_argument("--yes", action="store_true", help="install without asking for confirmation")
@@ -363,6 +386,7 @@ COMMANDS = {
     "connect": cmd_connect,
     "disconnect": cmd_disconnect,
     "status": cmd_status,
+    "repair": cmd_repair,
     "update": cmd_update,
 }
 

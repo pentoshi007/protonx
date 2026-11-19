@@ -1,17 +1,15 @@
 import json
 import os
 import pwd
-import re
 import sys
 
 from helper_common import HelperError, run, tool, write_private
+from protonxlib import netstate
+from protonxlib import system as host
 
-STATE_DIR = "/var/run/protonx"
+STATE_DIR = host.state_dir()
 DNS_STATE_PATH = os.path.join(STATE_DIR, "dns.json")
 NAME_PATH = "/var/run/wireguard/protonx.name"
-NETWORKSETUP = "/usr/sbin/networksetup"
-ROUTE = "/sbin/route"
-TUNNEL_RESOLVERS = ("10.2.0.1", "10.200.")
 ADMIN_GID = 80
 SOL_LOCAL = 0
 LOCAL_PEERCRED = 0x001
@@ -22,6 +20,13 @@ def interface_name():
         return None
     with open(NAME_PATH) as handle:
         return handle.read().strip() or None
+
+
+def clear_interface_name():
+    try:
+        os.unlink(NAME_PATH)
+    except FileNotFoundError:
+        pass
 
 
 def interface_exists(name):
@@ -58,43 +63,20 @@ def current_bypass():
     return None
 
 
-def _default_device():
-    result = run([ROUTE, "-n", "get", "default"], check=False)
-    for line in result.stdout.splitlines():
-        if line.strip().startswith("interface:"):
-            return line.split(":", 1)[1].strip()
-    return None
-
-
 def _primary_service():
-    device = _default_device()
-    if not device:
-        return None
-    result = run([NETWORKSETUP, "-listnetworkserviceorder"], check=False)
-    service = None
-    for line in result.stdout.splitlines():
-        text = line.strip()
-        match = re.match(r"^\(\d+\)\s+(.+)$", text)
-        if match:
-            service = match.group(1)
-        elif "Device: %s)" % device in text:
-            return service
-    return None
+    return netstate.mac_primary_service()
 
 
 def _read_dns(service):
-    result = run([NETWORKSETUP, "-getdnsservers", service])
-    if "aren't any DNS Servers" in result.stdout:
-        return []
-    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return netstate.mac_read_dns(service)
 
 
 def _write_dns(service, servers):
-    run([NETWORKSETUP, "-setdnsservers", service] + (servers or ["Empty"]))
+    netstate.mac_write_dns(service, servers)
 
 
 def _is_tunnel_resolver(server):
-    return any(server.startswith(prefix) for prefix in TUNNEL_RESOLVERS)
+    return netstate.is_tunnel_resolver(server)
 
 
 def _snapshot():
@@ -110,11 +92,19 @@ def _snapshot():
 
 def restore_dns():
     payload = _snapshot()
-    if payload is None:
+    if payload is not None:
+        servers = [item for item in payload["servers"] if not _is_tunnel_resolver(item)]
+        _write_dns(payload["service"], servers)
+        os.unlink(DNS_STATE_PATH)
         return
-    servers = [item for item in payload["servers"] if not _is_tunnel_resolver(item)]
-    _write_dns(payload["service"], servers)
-    os.unlink(DNS_STATE_PATH)
+    # No snapshot (reboot, helper replacement, or a crash): never leave the
+    # machine pointing at a resolver that only exists inside the tunnel.
+    service = _primary_service()
+    if not service:
+        return
+    current = _read_dns(service)
+    if any(_is_tunnel_resolver(item) for item in current):
+        _write_dns(service, [item for item in current if not _is_tunnel_resolver(item)])
 
 
 def apply_dns(dns):
@@ -124,6 +114,7 @@ def apply_dns(dns):
     if not service:
         raise HelperError("could not identify the Mac’s default network service for DNS")
     payload = {"service": service, "servers": _read_dns(service), "applied": dns}
+    os.makedirs(os.path.dirname(DNS_STATE_PATH), mode=0o755, exist_ok=True)
     write_private(DNS_STATE_PATH, json.dumps(payload))
     _write_dns(service, dns.split(", "))
 
@@ -135,6 +126,22 @@ def applied_dns():
     if payload.get("applied") is not None:
         return payload["applied"]
     return ", ".join(_read_dns(payload["service"])) or None
+
+
+def dns_report(up):
+    return netstate.mac_dns_report(up)
+
+
+def flush_dns():
+    netstate.flush_dns()
+
+
+def resolves(name):
+    return netstate.resolves(name)
+
+
+def internet():
+    return netstate.internet()
 
 
 def peer_uid(connection):

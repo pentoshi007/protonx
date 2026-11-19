@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from urllib.error import URLError
 
-from . import api, auth, catalog, credentials, identity, login, selection, state, system, wireguard
+from . import api, auth, catalog, credentials, identity, login, netstate, recovery, selection, state, system, wireguard
 from .countries import NAMES
 from .errors import ProtonxError, SelectionError, TunnelError
 
@@ -167,7 +167,7 @@ def connect(logical, api_client, options, dry_run=False):
     if dry_run:
         return dict(record, ok=True, dry_run=True, dns=settings["dns"], config=wireguard.preview(settings))
     registration = _register(api_client, identity.public_keys(keys))
-    report = wireguard.up(settings)
+    report = wireguard.up(settings, record)
     if not report.get("up"):
         raise TunnelError("the helper did not report an active tunnel")
     state.save(record)
@@ -179,16 +179,20 @@ def connect(logical, api_client, options, dry_run=False):
         identity=keys.x25519_pub_b64[:16],
         registration=registration,
         ssh_guard=settings.get("bypass_source"),
+        retried=report.get("retried", False),
     )
 
 
 def disconnect():
     report = wireguard.down()
-    return {"ok": True, "up": report.get("up", False), "server": state.load()}
+    return {"ok": True, "up": report.get("up", False), "server": state.load(), "warnings": report.get("warnings", [])}
 
 
 def status():
-    report = wireguard.status()
+    try:
+        report = wireguard.status()
+    except TunnelError:
+        report = recovery.probe()
     peer = (report.get("peers") or [None])[0]
     return {
         "ok": True,
@@ -196,9 +200,15 @@ def status():
         "interface": report.get("interface"),
         "address": report.get("address"),
         "peer": peer,
-        "server": state.load(),
+        "server": report.get("server") or state.load(),
+        "dns": report.get("dns") or {},
         "ssh_guard": report.get("bypass_source"),
+        "fallback": report.get("fallback", False),
     }
+
+
+def repair():
+    return wireguard.repair()
 
 
 def handshake_age(peer):
@@ -235,6 +245,17 @@ def _tunnel_check():
     return ("helper", helper.SOCKET_PATH if helper.available() else "not installed", helper.available())
 
 
+def _dns_check():
+    try:
+        up = wireguard.status().get("up", False)
+    except ProtonxError:
+        up = False
+    report = netstate.dns_report(up)
+    if report["stale"]:
+        return ("dns", "stale VPN DNS; run protonx repair", False)
+    return ("dns", "ok", True)
+
+
 def health_checks():
     try:
         import cryptography
@@ -248,5 +269,6 @@ def health_checks():
         crypto,
         _wireguard_check(),
         _tunnel_check(),
+        _dns_check(),
         _session_check(),
     ]

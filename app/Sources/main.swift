@@ -60,6 +60,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         if arguments.contains("--selftest-update") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.testUpdateCheck() }
         }
+        if arguments.contains("--selftest-repair") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.testRepair() }
+        }
+        if arguments.contains("--selftest-repair-alert") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.testRepairAlert() }
+        }
+        if arguments.contains("--selftest-menus") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in self?.testMenus() }
+        }
         if arguments.contains("--selftest-update-alert") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.testUpdateAlert() }
         }
@@ -115,6 +124,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         }
         app.addItem(makeItem("Check for Updates…", #selector(checkForUpdates)))
         app.addItem(makeItem("Launch at Login", #selector(toggleLaunchAtLogin)))
+        app.addItem(makeItem("Repair Network", #selector(repairNetwork)))
         app.addItem(.separator())
         app.addItem(withTitle: "Quit ProtonX", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
@@ -165,6 +175,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
     private func showContextMenu() {
         guard let button = statusItem?.button else { return }
         state.refreshStatus()
+        let menu = makeContextMenu()
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY + 4), in: button)
+    }
+
+    private func makeContextMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         if state.isUp {
@@ -182,12 +197,17 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         menu.addItem(.separator())
         menu.addItem(makeItem("Open Window", #selector(openWindow)))
         menu.addItem(makeItem("Refresh", #selector(refresh)))
+        menu.addItem(makeItem("Repair Network", #selector(repairNetwork)))
         menu.addItem(makeItem("Check for Updates…", #selector(checkForUpdates)))
         let login = makeItem("Launch at Login", #selector(toggleLaunchAtLogin))
         login.state = LaunchAtLogin.isEnabled ? .on : .off
         menu.addItem(login)
         menu.addItem(withTitle: "Quit ProtonX", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY + 4), in: button)
+        return menu
+    }
+
+    func contextMenuTitles() -> [String] {
+        makeContextMenu().items.map(\.title)
     }
 
     private func togglePopover() {
@@ -209,6 +229,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         let controller = PopoverController(state: state, page: initialPage)
         controller.openWindow = { [weak self] page in self?.showWindow(page: page) }
         controller.checkForUpdates = { [weak self] in self?.checkForUpdates() }
+        controller.repairNetwork = { [weak self] in self?.repairNetwork() }
         controller.dismissForAlert = { [weak self] in
             guard let self, let popover = self.popover else { return false }
             let wasShown = popover.isShown
@@ -255,6 +276,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         target.isReleasedWhenClosed = false
         let controller = PopoverController(state: state, page: page, detached: true)
         controller.checkForUpdates = { [weak self] in self?.checkForUpdates() }
+        controller.repairNetwork = { [weak self] in self?.repairNetwork() }
         target.contentViewController = controller
         if let appearanceOverride {
             target.appearance = appearanceOverride
@@ -530,6 +552,33 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         }
     }
 
+    @objc private func repairNetwork() {
+        state.repair { [weak self] result in
+            self?.presentRepair(result)
+        }
+    }
+
+    private func presentRepair(_ result: Result<RepairReport, Error>) {
+        switch result {
+        case .success(let report):
+            let summary = report.internet
+                ? "The tunnel is stopped, DNS is restored, and the internet is reachable."
+                : "The tunnel is stopped and DNS is restored, but the internet is still unreachable."
+            let actions = report.actions.isEmpty ? "" : "\n\n" + report.actions.map { "• \($0)" }.joined(separator: "\n")
+            _ = presentAlert { alert in
+                alert.messageText = report.internet ? "Network repaired" : "Repair finished"
+                alert.informativeText = summary + actions
+                alert.addButton(withTitle: "OK")
+            }
+        case .failure(let error):
+            _ = presentAlert { alert in
+                alert.messageText = "Repair failed"
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: "OK")
+            }
+        }
+    }
+
     private func presentAlert(_ configure: (NSAlert) -> Void) -> NSApplication.ModalResponse {
         let wasShown = popover?.isShown == true
         popover?.close()
@@ -628,6 +677,52 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         }
     }
 
+    private func testRepair() {
+        state.repair { result in
+            switch result {
+            case .success(let report):
+                print("Repair: PASS (actions=\(report.actions.count), resolves=\(report.resolves), internet=\(report.internet))")
+                exit(0)
+            case .failure(let error):
+                print("Repair: FAIL (\(error.localizedDescription))")
+                exit(1)
+            }
+        }
+    }
+
+    private func testMenus() {
+        let appMenu = NSApp.mainMenu?.items.first { $0.submenu?.title == "ProtonX" }?.submenu?.items.map(\.title) ?? []
+        let contextMenu = contextMenuTitles()
+        let appOK = appMenu.contains("Repair Network")
+        let contextOK = contextMenu.contains("Repair Network")
+        print("Menus: \(appOK && contextOK ? "PASS" : "FAIL") (app=\(appMenu.joined(separator: " | ")), context=\(contextMenu.joined(separator: " | ")))")
+        exit(appOK && contextOK ? 0 : 1)
+    }
+
+    private func testRepairAlert() {
+        let report = RepairReport(
+            ok: true,
+            actions: ["flushed the DNS cache", "restored the system DNS settings"],
+            resolves: true,
+            internet: true,
+            dns: nil
+        )
+        let capture = ProcessInfo.processInfo.environment["PROTONX_CAPTURE"] ?? ""
+        let timer = Timer(timeInterval: 1.0, target: self, selector: #selector(captureRepairAlert(_:)),
+                          userInfo: ["path": capture], repeats: false)
+        RunLoop.main.add(timer, forMode: .common)
+        presentRepair(.success(report))
+        print("Repair alert: PASS")
+        exit(0)
+    }
+
+    @objc private func captureRepairAlert(_ timer: Timer) {
+        if let info = timer.userInfo as? [String: String], let path = info["path"], !path.isEmpty {
+            captureScreen(path)
+        }
+        NSApp.stopModal(withCode: .alertFirstButtonReturn)
+    }
+
     private func testUpdateAlert() {
         let status = UpdateStatus(current: "1.1.0", latest: "1.2.0", update: true)
         let alert = NSAlert()
@@ -669,7 +764,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
             let signIn = try engine.signIn(username: "tester", password: "secret")
             let twoFactor = try engine.submitTwoFactor("123456")
             try engine.signOut()
-            print("Engine surface: PASS (up=\(status.up), countries=\(catalog.countries.count), signedIn=\(account.signedIn), login=\(signIn.status), twoFactor=\(twoFactor.status))")
+            let repair = try engine.repair()
+            print("Engine surface: PASS (up=\(status.up), countries=\(catalog.countries.count), signedIn=\(account.signedIn), login=\(signIn.status), twoFactor=\(twoFactor.status), repair=\(repair.internet))")
             exit(0)
         } catch {
             print("Engine surface: FAIL (\(error.localizedDescription))")

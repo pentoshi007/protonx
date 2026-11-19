@@ -51,6 +51,12 @@ struct Peer: Decodable, Equatable, Sendable {
     let txBytes: Int64
 }
 
+struct DNSReport: Decodable, Equatable, Sendable {
+    let stale: Bool
+    let servers: [String]
+    let service: String?
+}
+
 struct LastServer: Decodable, Equatable, Sendable {
     let country: String
     let server: String
@@ -67,6 +73,7 @@ struct Status: Decodable, Equatable, Sendable {
     let address: String?
     let peer: Peer?
     let server: LastServer?
+    let dns: DNSReport?
 }
 
 struct Account: Decodable, Equatable, Sendable {
@@ -84,6 +91,14 @@ struct UpdateStatus: Decodable, Equatable, Sendable {
     let current: String
     let latest: String
     let update: Bool
+}
+
+struct RepairReport: Decodable, Sendable {
+    let ok: Bool
+    let actions: [String]
+    let resolves: Bool
+    let internet: Bool
+    let dns: DNSReport?
 }
 
 enum SessionPhase: Equatable {
@@ -112,12 +127,13 @@ enum TunnelOperation: Equatable, Sendable {
     case connecting(Destination)
     case switching(Destination)
     case disconnecting
+    case repairing
     case signingOut
 
     var destination: Destination? {
         switch self {
         case .connecting(let target), .switching(let target): return target
-        case .disconnecting, .signingOut: return nil
+        case .disconnecting, .repairing, .signingOut: return nil
         }
     }
 }

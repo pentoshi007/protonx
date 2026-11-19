@@ -24,6 +24,16 @@ def config_dir():
     return os.path.expanduser("~/.config/protonx")
 
 
+def state_dir():
+    """Root-owned, reboot-safe state shared by the helper and the CLI probe."""
+    if IS_MAC:
+        return "/Library/Application Support/ProtonX"
+    if IS_LINUX:
+        return "/var/lib/protonx"
+    base = os.environ.get("ProgramData") or os.environ.get("APPDATA") or os.path.expanduser("~")
+    return os.path.join(base, "ProtonX")
+
+
 def ssh_source():
     parts = os.environ.get("SSH_CONNECTION", "").split()
     if len(parts) != 4:

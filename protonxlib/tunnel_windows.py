@@ -2,7 +2,7 @@ import os
 import subprocess
 import time
 
-from . import system, wgconf
+from . import netstate, system, wgconf
 from .errors import TunnelError
 
 TUNNEL = "protonx"
@@ -100,6 +100,8 @@ def status():
         "peers": _peers() if up else [],
         "config": os.path.exists(CONFIG_PATH),
         "bypass_source": None,
+        "server": None,
+        "dns": {"stale": False, "servers": [], "service": None},
     }
 
 
@@ -141,15 +143,27 @@ def up(settings):
         raise TunnelError("keeping an SSH session outside the tunnel is only supported on Linux")
     previous = _previous()
     _uninstall()
-    try:
-        _install(wgconf.render(fields, with_dns=True))
-    except TunnelError as error:
-        _uninstall()
-        if previous is None:
-            raise
-        _install(previous)
-        raise TunnelError("%s (previous tunnel restored)" % error) from error
-    return status()
+    last_error = None
+    for attempt in range(2):
+        try:
+            _install(wgconf.render(fields, with_dns=True))
+            report = status()
+            if attempt:
+                report["retried"] = True
+            return report
+        except TunnelError as error:
+            last_error = error
+            _uninstall()
+            if attempt == 0:
+                time.sleep(0.6)
+    if previous is not None:
+        try:
+            _install(previous)
+        except TunnelError:
+            _uninstall()
+            raise TunnelError("%s. Recovery failed; the tunnel is stopped." % last_error) from last_error
+        raise TunnelError("%s (previous tunnel restored)" % last_error) from last_error
+    raise TunnelError("%s. The system was restored to its normal network settings." % last_error) from last_error
 
 
 def down():
@@ -159,3 +173,19 @@ def down():
     if os.path.exists(CONFIG_PATH):
         os.unlink(CONFIG_PATH)
     return status()
+
+
+def repair():
+    _require_admin()
+    actions = []
+    if _service_state() is not None:
+        _uninstall()
+        actions.append("stopped the WireGuard tunnel service")
+    if os.path.exists(CONFIG_PATH):
+        os.unlink(CONFIG_PATH)
+        actions.append("removed the tunnel configuration")
+    report = status()
+    report["actions"] = actions
+    report["resolves"] = netstate.resolves("apple.com")
+    report["internet"] = netstate.internet()
+    return report

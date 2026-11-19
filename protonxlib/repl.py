@@ -151,6 +151,7 @@ class Menu:
         choices += [
             Choice("Sign in", self._sign_in, "Proton username or email and password"),
             Choice("Check setup", self._doctor, "dependencies, helper and network"),
+            Choice("Repair network", self._repair, "fix DNS or internet after a crash"),
             Choice("Check for updates", self._update, "install the latest release"),
             Choice("Exit", None),
         ]
@@ -179,6 +180,7 @@ class Menu:
             Choice("Settings", self._settings, self._settings_summary()),
             Choice("Account", self._account, "plan, sign out"),
             Choice("Check setup", self._doctor, "dependencies, helper and session"),
+            Choice("Repair network", self._repair, "fix DNS or internet after a crash"),
             Choice("Check for updates", self._update, "install the latest release"),
             Choice("Exit", None, "the VPN stays connected" if up else ""),
         ]
@@ -342,6 +344,8 @@ class Menu:
             rows.append(("Status", term.paint("%s Connected" % term.symbol("dot"), "green", "bold")))
         else:
             rows.append(("Status", term.paint("%s Disconnected" % term.symbol("ring"), "bold")))
+        if (tunnel.get("dns") or {}).get("stale"):
+            rows.append(("DNS", term.paint("stale; run Repair network", "yellow")))
         if saved:
             rows.append(("Server", _joined(saved.get("label"), _place(saved))))
             rows.append(("Endpoint", saved.get("endpoint", "-")))
@@ -420,6 +424,20 @@ class Menu:
             term.say("  %s %s %s" % (mark, name.ljust(13), value))
         if not wireguard.available():
             term.note("  The tunnel backend is missing. Re-run the protonx installer for %s." % system.name())
+        if any(name == "dns" and not ok for name, _, ok in checks):
+            term.note("  Run 'Repair network' to restore DNS and internet access.")
+        term.pause()
+
+    def _repair(self):
+        with term.spinner("Repairing the network"):
+            payload = service.repair()
+        term.success("Tunnel stopped and DNS restored.")
+        if payload.get("internet"):
+            term.success("Internet is reachable.")
+        else:
+            term.failure("DNS was restored, but the internet is still unreachable.")
+        for action in payload.get("actions", []):
+            term.note("  " + action)
         term.pause()
 
 

@@ -9,6 +9,7 @@ final class PopoverController: NSViewController {
     var dismissForAlert: (() -> Bool)?
     var restoreAfterAlert: (() -> Void)?
     var checkForUpdates: (() -> Void)?
+    var repairNetwork: (() -> Void)?
     var page: DirectoryPage { directory.page }
 
     private let state: AppState
@@ -94,6 +95,10 @@ final class PopoverController: NSViewController {
         login.target = self
         login.state = LaunchAtLogin.isEnabled ? .on : .off
         menu.addItem(login)
+        let repair = NSMenuItem(title: "Repair Network", action: #selector(repairNetworkAction), keyEquivalent: "")
+        repair.target = self
+        repair.isEnabled = repairNetwork != nil
+        menu.addItem(repair)
         menu.addItem(.separator())
         let signOut = NSMenuItem(title: "Sign Out…", action: #selector(confirmSignOut), keyEquivalent: "")
         signOut.target = self
@@ -139,6 +144,10 @@ final class PopoverController: NSViewController {
 
     @objc private func checkForUpdatesAction() {
         checkForUpdates?()
+    }
+
+    @objc private func repairNetworkAction() {
+        repairNetwork?()
     }
 
     @objc private func toggleLaunchAtLogin() {

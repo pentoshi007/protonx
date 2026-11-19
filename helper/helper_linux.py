@@ -8,16 +8,18 @@ import socket
 import struct
 
 from helper_common import HelperError, run, tool, write_private
+from protonxlib import netstate
+from protonxlib import system as host
 
 INTERFACE = "protonx"
-STATE_DIR = "/var/lib/protonx"
+STATE_DIR = host.state_dir()
 DNS_STATE_PATH = os.path.join(STATE_DIR, "dns.json")
 RESOLV_CONF = "/etc/resolv.conf"
 RESOLVED_STUB = "/run/systemd/resolve/stub-resolv.conf"
 SYS_NET = "/sys/class/net"
 CONTROL_GROUP = "protonx"
 BYPASS_PRIORITY = 5180
-RESOLV_HEADER = "# Written by protonx while the VPN is connected; restored on disconnect.\n"
+RESOLV_HEADER = netstate.RESOLV_HEADER
 BYPASS_RULE = re.compile(r"^%d:\s+from (\S+) lookup main\b" % BYPASS_PRIORITY)
 
 
@@ -27,6 +29,10 @@ def interface_exists(name):
 
 def interface_name():
     return INTERFACE if interface_exists(INTERFACE) else None
+
+
+def clear_interface_name():
+    pass
 
 
 def interface_address(name):
@@ -133,7 +139,7 @@ def _replace_resolv(snapshot):
 
 
 def _save_snapshot(payload):
-    os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
+    os.makedirs(os.path.dirname(DNS_STATE_PATH), mode=0o755, exist_ok=True)
     write_private(DNS_STATE_PATH, json.dumps(payload))
 
 
@@ -165,14 +171,30 @@ def apply_dns(dns):
 
 def restore_dns():
     payload = _snapshot()
-    if payload is None:
+    if payload is not None:
+        if payload.get("method") == "resolved":
+            if interface_exists(INTERFACE):
+                _resolvectl("revert", INTERFACE, check=False)
+        else:
+            _replace_resolv(payload)
+        os.unlink(DNS_STATE_PATH)
         return
-    if payload.get("method") == "resolved":
-        if interface_exists(INTERFACE):
-            _resolvectl("revert", INTERFACE, check=False)
+    # No snapshot: remove a protonx-written resolv.conf instead of leaving the
+    # machine without a resolver after a reboot or a helper replacement.
+    try:
+        with open(RESOLV_CONF) as handle:
+            text = handle.read()
+    except OSError:
+        return
+    if not text.startswith(RESOLV_HEADER):
+        return
+    if os.path.exists(RESOLVED_STUB):
+        _replace_resolv({"link": RESOLVED_STUB})
     else:
-        _replace_resolv(payload)
-    os.unlink(DNS_STATE_PATH)
+        try:
+            os.unlink(RESOLV_CONF)
+        except OSError:
+            pass
 
 
 def applied_dns():
@@ -180,10 +202,26 @@ def applied_dns():
     return payload.get("applied") if payload else None
 
 
+def dns_report(up):
+    return netstate.linux_dns_report(up)
+
+
+def flush_dns():
+    netstate.flush_dns()
+
+
+def resolves(name):
+    return netstate.resolves(name)
+
+
+def internet():
+    return netstate.internet()
+
+
 def peer_uid(connection):
     size = struct.calcsize("3i")
     try:
-        data = connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, size)
+        data = connection.getsockopt(socket.SOL_SOCKET, SO_PEERCRED, size)
     except OSError:
         return None
     if len(data) < size:

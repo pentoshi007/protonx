@@ -9,6 +9,7 @@ final class RouteCard: NSView {
     private let metrics = mono("", 10, color: Theme.signal)
     private let primary = ConsoleButton("Connect", style: .routePrimary)
     private let secondary = ConsoleButton("Disconnect", style: .routeQuiet)
+    private let repair = ConsoleButton("Repair Network", symbol: "wrench.and.screwdriver", style: .routeQuiet)
     private let spinner = InlineSpinner()
     private let diagram = RouteDiagram()
     private let byteCount = ByteCountFormatter()
@@ -26,7 +27,7 @@ final class RouteCard: NSView {
     private func assemble(_ surface: NSView) {
         let body = column([badge, title, detail], spacing: 3, fill: false)
         let top = line([body, space(), diagram], spacing: 10)
-        let actions = line([primary, secondary, spinner, space()], spacing: 7)
+        let actions = line([primary, secondary, repair, spinner, space()], spacing: 7)
         let divider = Surface(Theme.inkRule)
         divider.heightAnchor.constraint(equalToConstant: 1).isActive = true
         let lower = line([local, space(), metrics])
@@ -41,6 +42,9 @@ final class RouteCard: NSView {
     func render(_ state: AppState, visible: Bool) {
         primary.isHidden = true
         secondary.isHidden = true
+        repair.isHidden = true
+        repair.isEnabled = state.operation == nil
+        repair.handler = { [weak state] in state?.repair() }
         spinner.setRunning(visible && state.operation != nil)
         spinner.isHidden = state.operation == nil
         metrics.stringValue = ""
@@ -53,6 +57,7 @@ final class RouteCard: NSView {
         } else {
             renderOffline(state)
         }
+        repair.isHidden = !(state.dnsStale || state.statusError != nil)
     }
 
     private func renderOperation(_ operation: TunnelOperation, state: AppState) {
@@ -61,6 +66,8 @@ final class RouteCard: NSView {
             update("SIGNING OUT", title: "Ending your session", detail: "Disconnecting and clearing your local sign-in", code: nil, mode: .working)
         case .disconnecting:
             update("DISCONNECTING", title: "Closing tunnel", detail: "Restoring the Mac’s network settings", code: nil, mode: .working)
+        case .repairing:
+            update("REPAIRING", title: "Restoring network", detail: "Stopping the tunnel and restoring DNS", code: nil, mode: .working)
         case .switching(let target):
             update("SWITCHING", title: countryName(target.country, in: state), detail: target.server, code: target.country, mode: .working)
         case .connecting(let target):
