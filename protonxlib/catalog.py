@@ -19,7 +19,7 @@ def cached():
         saved = cache.load()
         return _parse(saved["payload"]), int(saved.get("fetchedAt", 0))
     except (KeyError, TypeError, OSError, ValueError, CatalogUnavailable) as error:
-        raise CatalogUnavailable("No usable server list is stored on this Mac. Refresh to download it.") from error
+        raise CatalogUnavailable("No usable server list is stored on this machine. Refresh to download it.") from error
 
 
 def live(client):

@@ -11,7 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENTRY = os.path.join(ROOT, "protonx")
 sys.path.insert(0, ROOT)
 
-from protonxlib import cli
+from protonxlib import service
 SOCKET = "/var/run/protonx/helper.sock"
 
 PEER_KEY = base64.b64encode(bytes(range(32, 64))).decode()
@@ -155,17 +155,17 @@ if __name__ == "__main__":
 
 class TierTests(unittest.TestCase):
     def test_unsubscribed_account_reports_free(self):
-        with mock.patch.object(cli.api, "auth_post", return_value={"User": {"Subscribed": 0}}):
-            self.assertEqual(cli._tier({"userId": "u"}), 0)
+        with mock.patch.object(service.api, "auth_post", return_value={"User": {"Subscribed": 0}}):
+            self.assertEqual(service.tier({"userId": "u"}), 0)
 
     def test_subscribed_account_does_not_claim_free(self):
-        with mock.patch.object(cli.api, "auth_post", return_value={"User": {"Subscribed": 1}}):
-            self.assertIsNone(cli._tier({"userId": "u"}))
+        with mock.patch.object(service.api, "auth_post", return_value={"User": {"Subscribed": 1}}):
+            self.assertIsNone(service.tier({"userId": "u"}))
 
     def test_api_failure_is_not_reported_as_free(self):
-        with mock.patch.object(cli.api, "auth_post", side_effect=cli.ProtonxError("boom")):
-            self.assertIsNone(cli._tier({"userId": "u"}))
+        with mock.patch.object(service.api, "auth_post", side_effect=service.ProtonxError("boom")):
+            self.assertIsNone(service.tier({"userId": "u"}))
 
     def test_labels(self):
-        self.assertEqual(cli._tier_label(0), "free")
-        self.assertEqual(cli._tier_label(None), "unknown")
+        self.assertEqual(service.tier_label(0), "free")
+        self.assertEqual(service.tier_label(None), "unknown")

@@ -1,0 +1,36 @@
+{
+  "name": "protonx-cli",
+  "version": "1.1.0",
+  "description": "Pick any Proton VPN country and server from the terminal, with an interactive menu. Linux, Windows and macOS.",
+  "keywords": [
+    "protonvpn",
+    "proton",
+    "vpn",
+    "wireguard",
+    "cli"
+  ],
+  "homepage": "https://github.com/pentoshi007/protonx#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pentoshi007/protonx.git"
+  },
+  "bin": {
+    "protonx": "bin/protonx.js"
+  },
+  "files": [
+    "bin/",
+    "cli/",
+    "helper/*.py",
+    "helper/protonx-helper.service",
+    "protonxlib/*.py",
+    "protonx"
+  ],
+  "os": [
+    "linux",
+    "darwin",
+    "win32"
+  ],
+  "engines": {
+    "node": ">=16"
+  }
+}

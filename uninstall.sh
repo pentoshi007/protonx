@@ -6,6 +6,7 @@ PURGE=false
 
 printf '\nprotonx uninstaller\n-------------------\n'
 
+[ -x /usr/local/bin/protonx ] && /usr/local/bin/protonx disconnect >/dev/null 2>&1 || true
 pkill -f "ProtonX.app/Contents/MacOS/ProtonX" >/dev/null 2>&1 || true
 sudo launchctl bootout system/com.protonx.helper >/dev/null 2>&1 || true
 sudo rm -f /Library/LaunchDaemons/com.protonx.helper.plist

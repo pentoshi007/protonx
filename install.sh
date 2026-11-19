@@ -14,6 +14,8 @@ fail() { printf '[!!] %s\n' "$1"; exit 1; }
 
 printf '\nprotonx installer\n-----------------\n'
 
+[ "$(uname -s)" = "Darwin" ] || fail "this installer is for macOS. On Linux run cli/install-linux.sh; on Windows run cli/install-windows.ps1."
+
 if [ "$(id -u)" != "0" ]; then
   exec sudo -S "$0" "$@"
 fi
@@ -50,10 +52,12 @@ ok "wireguard-tools present"
 
 printf '\ninstalling engine\n-----------------\n'
 sudo mkdir -p "$LIBEXEC"
-sudo rm -rf "$LIBEXEC/protonxlib" "$LIBEXEC/vendor" "$VENV"
+sudo rm -rf "$LIBEXEC/protonxlib" "$LIBEXEC/vendor" "$LIBEXEC/helper" "$LIBEXEC/helper.py" "$VENV"
 sudo cp -R "$ROOT/protonxlib" "$LIBEXEC/"
+sudo mkdir -p "$LIBEXEC/helper"
+sudo cp "$ROOT"/helper/*.py "$LIBEXEC/helper/"
 sudo install -m 755 "$ROOT/protonx" "$LIBEXEC/protonx"
-sudo install -m 755 "$ROOT/helper/protonx_helper.py" "$LIBEXEC/helper.py"
+sed -n 's/^__version__ = "\(.*\)"/\1/p' "$ROOT/protonxlib/__init__.py" | sudo tee "$LIBEXEC/VERSION" >/dev/null
 sudo find "$LIBEXEC" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 sudo chown -R root:wheel "$LIBEXEC"
 ok "engine installed to $LIBEXEC"
@@ -80,6 +84,7 @@ else
 fi
 
 printf '\ninstalling app\n--------------\n'
+sudo rm -f "$CLI"
 printf '#!/bin/sh\nexec %s %s/protonx "$@"\n' "$VENV/bin/python" "$LIBEXEC" | sudo tee "$CLI" >/dev/null
 sudo chmod 755 "$CLI"
 ok "command installed at $CLI"
@@ -107,4 +112,5 @@ printf '  1. Open ProtonX and sign in once with your Proton username and passwor
 printf '     (plus a two-factor code if you use one). The card pre-fills the username.\n'
 printf '  2. Click the shield in the menu bar: pick a country, pick a server, Connect.\n'
 printf '  3. "Reconnect" repeats your last server in one click. Proton VPN can stay\n'
-printf '     installed and signed in; only one tunnel should be up at a time.\n\n'
+printf '     installed and signed in; only one tunnel should be up at a time.\n'
+printf '  4. In a terminal, type protonx for the interactive menu (protonx --help for flags).\n\n'

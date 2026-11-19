@@ -55,9 +55,9 @@ class LoginTest(unittest.TestCase):
     def setUp(self):
         self.store = MemoryKeychain()
         self.patches = [
-            mock.patch.object(login.keychain, "write_json", self.store.write_json),
-            mock.patch.object(login.keychain, "read_json", self.store.read_json),
-            mock.patch.object(login.keychain, "delete", self.store.delete),
+            mock.patch.object(login.credentials, "write_json", self.store.write_json),
+            mock.patch.object(login.credentials, "read_json", self.store.read_json),
+            mock.patch.object(login.credentials, "delete", self.store.delete),
             mock.patch.object(login.srp, "cleartext_modulus", return_value=b"\x04" * 256),
             mock.patch.object(login.srp, "generate_proofs", return_value=PROOFS),
         ]
@@ -128,7 +128,7 @@ class LoginTest(unittest.TestCase):
 
     def test_failed_keychain_delete_does_not_report_logout(self):
         login.store({"accessToken": "fixture"})
-        with mock.patch.object(login.keychain, "delete"), mock.patch.object(login.api, "auth_post") as revoke:
+        with mock.patch.object(login.credentials, "delete"), mock.patch.object(login.api, "auth_post") as revoke:
             with self.assertRaisesRegex(ProtonxError, "Could not remove"):
                 login.sign_out()
         revoke.assert_not_called()

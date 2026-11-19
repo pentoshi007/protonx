@@ -1,6 +1,6 @@
 import os
 
-from . import keychain, login
+from . import credentials, login
 from .api import Client
 from .errors import ApiError, SessionExpired, SessionMissing
 
@@ -24,12 +24,12 @@ def load_session():
     session = login.current()
     if session:
         return session
-    if keychain.exists(LEGACY_SERVICE, LEGACY_ACCOUNT):
+    if credentials.exists(LEGACY_SERVICE, LEGACY_ACCOUNT):
         raise SessionMissing(
             "the Proton VPN app's keychain copy of the session is already stale, because the app "
             "keeps refreshed tokens in memory only. Sign in to ProtonX once instead."
         )
-    raise SessionMissing("not signed in yet. Sign in once in ProtonX, then this works without asking again.")
+    raise SessionMissing("not signed in yet. Run 'protonx login' once, then this works without asking again.")
 
 
 def store(session):

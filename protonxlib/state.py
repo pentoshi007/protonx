@@ -7,7 +7,7 @@ STATE_PATH = os.path.join(CONFIG_DIR, "last.json")
 
 
 def save(record):
-    os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
+    os.makedirs(os.path.dirname(STATE_PATH), mode=0o700, exist_ok=True)
     with open(STATE_PATH, "w") as handle:
         json.dump(record, handle, indent=2)
     os.chmod(STATE_PATH, 0o600)

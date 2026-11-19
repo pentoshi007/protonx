@@ -2,12 +2,11 @@ import argparse
 import getpass
 import json
 import sys
-import time
 from urllib.error import URLError
 
-from . import api, auth, catalog, helper, identity, keychain, login, selection, state, wireguard
+from . import __version__, catalog, login, selection, service, wireguard
 from .countries import NAMES
-from .errors import ProtonxError, SelectionError, SessionExpired, SessionMissing, TunnelError
+from .errors import ProtonxError, SessionExpired, SessionMissing
 
 
 def _print_table(rows, headers):
@@ -27,56 +26,27 @@ def _emit(payload):
 
 
 def _client(args):
-    if getattr(args, "offline", False):
-        return None
-    session = auth.load_session()
-    return auth.make_client(session, persist=not args.no_persist)
+    return service.client(offline=getattr(args, "offline", False), persist=not args.no_persist)
 
 
 def _pool(args, client=None):
-    if getattr(args, "offline", False):
-        return catalog.cached()[0]
-    return catalog.live(client or _client(args))[0]
+    offline = getattr(args, "offline", False)
+    return service.load_pool(offline=offline, api_client=client, persist=not args.no_persist)[0]
 
 
-def _session_check():
-    session = login.current()
-    if not session:
-        return ("session", "not signed in - use the sign-in card in ProtonX", False)
-    try:
-        client = auth.make_client(session, persist=False)
-        client.client_config()
-        return (
-            "session",
-            "%s, plan %s" % (session.get("username", "?"), _tier_label(_tier(session))),
-            True,
-        )
-    except ProtonxError as error:
-        return ("session", str(error), False)
-
-
-def _checks():
-    try:
-        import cryptography
-
-        crypto = ("cryptography", cryptography.__version__, True)
-    except ImportError:
-        crypto = ("cryptography", "missing", False)
-    helper_state = (
-        "helper",
-        helper.SOCKET_PATH if helper.available() else "not installed",
-        helper.available(),
+def _options(args):
+    return service.ConnectOptions(
+        paid=getattr(args, "paid", False),
+        p2p=getattr(args, "p2p", False),
+        dns=not getattr(args, "no_dns", False),
+        ssh_guard=not getattr(args, "no_ssh_guard", False),
+        mtu=getattr(args, "mtu", wireguard.DEFAULT_MTU),
+        allowed_ips=getattr(args, "allowed_ips", wireguard.ALLOWED_IPS),
     )
-    return [
-        ("python", sys.version.split()[0], sys.version_info >= (3, 9)),
-        crypto,
-        helper_state,
-        _session_check(),
-    ]
 
 
 def cmd_doctor(args):
-    checks = _checks()
+    checks = service.health_checks()
     healthy = all(ok for _, _, ok in checks)
     if args.json:
         _emit([{"name": name, "value": value, "ok": ok} for name, value, ok in checks])
@@ -86,35 +56,10 @@ def cmd_doctor(args):
     return 0 if healthy else 1
 
 
-def _default_username():
-    session = login.current()
-    if session and session.get("username"):
-        return session["username"]
-    try:
-        return keychain.read_json("ProtonVPN", "authCredentials").get("username")
-    except ProtonxError:
-        return None
-
-
 def _read_password(from_stdin):
     if from_stdin or not sys.stdin.isatty():
         return sys.stdin.readline().rstrip("\n")
     return getpass.getpass("Proton password: ")
-
-
-def _tier(session):
-    try:
-        users = api.auth_post("/core/v4/users", None, session=session, method="GET")
-        user = users.get("User") or {}
-        return 0 if not user.get("Subscribed") else None
-    except (ProtonxError, URLError, TimeoutError):
-        return None
-
-
-def _tier_label(tier):
-    if tier is None:
-        return "unknown"
-    return "free" if tier == 0 else str(tier)
 
 
 def _report_login(outcome, as_json):
@@ -124,7 +69,7 @@ def _report_login(outcome, as_json):
         else:
             print("two-factor code required: protonx login --two-factor CODE")
         return 0
-    tier = _tier(login.current() or {})
+    tier = service.tier(login.current() or {})
     if as_json:
         _emit(
             {
@@ -136,7 +81,7 @@ def _report_login(outcome, as_json):
             }
         )
         return 0
-    print("signed in as %s · plan %s" % (outcome.get("username"), _tier_label(tier)))
+    print("signed in as %s · plan %s" % (outcome.get("username"), service.tier_label(tier)))
     return 0
 
 
@@ -145,7 +90,7 @@ def cmd_login(args):
         return _report_login(login.finish_two_factor(sys.stdin.readline().strip()), args.json)
     if args.two_factor:
         return _report_login(login.finish_two_factor(args.two_factor), args.json)
-    username = args.username or _default_username()
+    username = args.username or service.default_username()
     if not username:
         print("error: pass --username for the first sign-in", file=sys.stderr)
         return 2
@@ -163,20 +108,12 @@ def cmd_logout(args):
 
 
 def cmd_whoami(args):
-    session = login.current()
-    pending = login.pending()
-    payload = {"signedIn": bool(session), "pending": pending is not None}
-    if session or pending:
-        payload["username"] = (session or pending).get("username")
-    else:
-        payload["username"] = _default_username()
-    if session and not args.local:
-        payload["tier"] = _tier(session)
+    payload = service.account(remote=not args.local)
     if args.json:
         _emit(payload)
         return 0
-    if session:
-        print("%s · plan %s" % (payload.get("username"), _tier_label(payload.get("tier"))))
+    if payload["signedIn"]:
+        print("%s · plan %s" % (payload.get("username"), service.tier_label(payload.get("tier"))))
     else:
         print("not signed in")
     return 0
@@ -223,7 +160,7 @@ def cmd_countries(args):
 def cmd_servers(args):
     pool = _pool(args)
     country = selection.resolve_country(pool, args.country)
-    found = selection.candidates(pool, country, include_paid=args.paid, p2p_only=args.p2p)
+    found = service.servers_in(pool, country, _options(args))
     rows = [
         {
             "name": item.display_name(),
@@ -232,7 +169,7 @@ def cmd_servers(args):
             "tier": "free" if item.free else "plus",
             "ports": sorted({entry.port for entry in item.wireguard_entries}),
         }
-        for item in sorted(found, key=lambda item: item.load)
+        for item in found
     ]
     if args.json:
         _emit(rows)
@@ -244,123 +181,39 @@ def cmd_servers(args):
     return 0
 
 
-def _entry_for(logical):
-    entries = logical.wireguard_entries
-    if not entries:
-        raise TunnelError("%s exposes no WireGuard entry" % logical.display_name())
-    return sorted(entries, key=lambda entry: entry.name)[0]
-
-
-def _register(client, keys):
-    try:
-        client.register_key(keys["ed25519"])
-        return "registered"
-    except ProtonxError as error:
-        return "unregistered (%s)" % error
-
-
-def _saved_target():
-    saved = state.load()
-    if not saved:
-        raise SelectionError("no previous connection to restore; connect once first")
-    return saved.get("country"), saved.get("server")
-
-
-def _record(logical, settings):
-    return {
-        "country": logical.exit_country,
-        "server": logical.name,
-        "label": logical.display_name(),
-        "city": logical.city or logical.exit_country,
-        "endpoint": wireguard.describe(settings),
-        "tier": "free" if logical.free else "plus",
-        "load": logical.load,
-        "connected_at": int(time.time()),
-    }
-
-
-def _target(args):
-    if args.restore:
-        return _saved_target()
-    return args.country, args.server
-
-
-def _pick(args, pool):
-    country_query, server_name = _target(args)
-    country = selection.resolve_country(pool, country_query)
-    strategy = selection.RANDOM if args.random else selection.FASTEST
-    return selection.select(
-        pool,
-        country=country,
-        server=server_name,
-        include_paid=args.paid,
-        p2p_only=args.p2p,
-        strategy=strategy,
-    )
-
-
-def _settings(args, keys, entry):
-    return wireguard.config(
-        private_key=keys.x25519_priv_b64,
-        peer_public_key=entry.x25519,
-        endpoint_host=entry.endpoint_host,
-        port=entry.port,
-        dns=None if args.no_dns else wireguard.DEFAULT_DNS,
-        mtu=args.mtu,
-        allowed_ips=args.allowed_ips,
-    )
-
-
-def _print_plan(record, settings, config_text):
-    print("server    %s (%s)" % (record["label"], record["city"]))
-    print("endpoint  %s" % record["endpoint"])
-    print("tier      %s · load %s%%" % (record["tier"], record["load"]))
-    if settings.get("dns"):
-        print("dns       %s (set by the helper, restored on disconnect)" % settings["dns"])
-    print("\n" + config_text)
+def _print_plan(payload):
+    print("server    %s (%s)" % (payload["label"], payload["city"]))
+    print("endpoint  %s" % payload["endpoint"])
+    print("tier      %s · load %s%%" % (payload["tier"], payload["load"]))
+    if payload.get("dns"):
+        print("dns       %s (set by the helper, restored on disconnect)" % payload["dns"])
+    print("\n" + payload["config"])
 
 
 def cmd_connect(args):
     client = _client(args)
     pool = _pool(args, client)
-    logical = _pick(args, pool)
-    entry = _entry_for(logical)
-    keys = identity.load_or_create()
-    settings = _settings(args, keys, entry)
-    record = _record(logical, settings)
-    if args.dry_run:
-        text = wireguard.preview(settings)
-        if args.json:
-            _emit(dict(record, ok=True, dry_run=True, config=text))
-        else:
-            _print_plan(record, settings, text)
-        return 0
-    registration = "skipped (offline)" if client is None else _register(client, identity.public_keys(keys))
-    report = wireguard.up(settings)
-    if not report.get("up"):
-        raise TunnelError("the helper did not report an active tunnel")
-    state.save(record)
-    payload = dict(
-        record,
-        ok=True,
-        interface=report.get("interface"),
-        address=report.get("address"),
-        identity=keys.x25519_pub_b64[:16],
-        registration=registration,
-    )
+    country, server = service.last_target() if args.restore else (args.country, args.server)
+    options = _options(args)
+    logical = service.pick(pool, country, server, options, randomly=args.random)
+    payload = service.connect(logical, client, options, dry_run=args.dry_run)
     if args.json:
         _emit(payload)
         return 0
-    print("server    %s (%s)" % (record["label"], record["city"]))
-    print("endpoint  %s" % record["endpoint"])
-    print("tunnel    up · %s · %s" % (report.get("interface"), report.get("address")))
-    print("identity  %s... %s" % (payload["identity"], registration))
+    if args.dry_run:
+        _print_plan(payload)
+        return 0
+    print("server    %s (%s)" % (payload["label"], payload["city"]))
+    print("endpoint  %s" % payload["endpoint"])
+    print("tunnel    up · %s · %s" % (payload.get("interface"), payload.get("address")))
+    print("identity  %s... %s" % (payload["identity"], payload["registration"]))
+    if payload.get("ssh_guard"):
+        print("ssh       replies from %s stay outside the tunnel" % payload["ssh_guard"])
     return 0
 
 
 def cmd_disconnect(args):
-    report = wireguard.down()
-    payload = {"ok": True, "up": report.get("up", False), "server": state.load()}
+    payload = service.disconnect()
     if args.json:
         _emit(payload)
         return 0
@@ -371,37 +224,32 @@ def cmd_disconnect(args):
 def _handshake_text(peer):
     if not peer:
         return "no peer"
-    stamp = peer.get("latest_handshake") or 0
-    if not stamp:
-        return "no handshake yet"
-    return "%ds ago" % max(0, int(time.time()) - stamp)
+    age = service.handshake_age(peer)
+    return "no handshake yet" if age is None else "%ds ago" % age
 
 
 def cmd_status(args):
-    report = wireguard.status()
-    saved = state.load()
-    peer = (report.get("peers") or [None])[0]
-    payload = {
-        "ok": True,
-        "up": report.get("up", False),
-        "interface": report.get("interface"),
-        "address": report.get("address"),
-        "peer": peer,
-        "server": saved,
-    }
+    payload = service.status()
+    saved = payload["server"]
     if args.json:
         _emit(payload)
         return 0
-    if not report.get("up"):
+    if not payload["up"]:
         suffix = " · last %s" % saved["label"] if saved else ""
         print("vpn        down" + suffix)
         return 0
-    print("vpn        up · %s" % report.get("interface"))
+    print("vpn        up · %s" % payload["interface"])
     if saved:
         print("server     %s (%s)" % (saved["label"], saved["city"]))
-    print("address    %s" % report.get("address"))
-    print("handshake  %s" % _handshake_text(peer))
+    print("address    %s" % payload["address"])
+    print("handshake  %s" % _handshake_text(payload["peer"]))
     return 0
+
+
+def cmd_menu(args):
+    from . import repl
+
+    return repl.run(persist=not args.no_persist)
 
 
 def _add_pool_options(parser):
@@ -411,20 +259,23 @@ def _add_pool_options(parser):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        prog="protonx", description="Choose any Proton VPN location that your plan can use"
+        prog="protonx",
+        description="Choose any Proton VPN location that your plan can use. Run without a command for the interactive menu.",
     )
+    parser.add_argument("--version", action="version", version="protonx " + __version__)
     parser.add_argument("--no-persist", action="store_true", help="do not write refreshed tokens back")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
 
+    sub.add_parser("menu", help="open the interactive menu (the default with no command)")
     doctor = sub.add_parser("doctor", help="check dependencies, helper and session")
     doctor.add_argument("--json", action="store_true")
-    login = sub.add_parser("login", help="sign in to your Proton account once")
-    login.add_argument("--username")
-    login.add_argument("--password-stdin", action="store_true", help="read the password from stdin")
-    login.add_argument("--code", help="two-factor code for this same call")
-    login.add_argument("--two-factor", dest="two_factor", help="finish a pending sign-in with this code")
-    login.add_argument("--two-factor-stdin", action="store_true", help="finish a pending sign-in with a code from stdin")
-    login.add_argument("--json", action="store_true")
+    login_parser = sub.add_parser("login", help="sign in to your Proton account once")
+    login_parser.add_argument("--username")
+    login_parser.add_argument("--password-stdin", action="store_true", help="read the password from stdin")
+    login_parser.add_argument("--code", help="two-factor code for this same call")
+    login_parser.add_argument("--two-factor", dest="two_factor", help="finish a pending sign-in with this code")
+    login_parser.add_argument("--two-factor-stdin", action="store_true", help="finish a pending sign-in with a code from stdin")
+    login_parser.add_argument("--json", action="store_true")
 
     logout = sub.add_parser("logout", help="forget the ProtonX session")
     logout.add_argument("--json", action="store_true")
@@ -433,9 +284,9 @@ def build_parser():
     whoami.add_argument("--local", action="store_true", help="check the local session without network access")
     whoami.add_argument("--json", action="store_true")
 
-    catalog = sub.add_parser("catalog", help="print the free WireGuard catalog as JSON")
-    catalog.add_argument("--offline", action="store_true", help="use the cached server list")
-    catalog.add_argument("--json", action="store_true")
+    catalog_parser = sub.add_parser("catalog", help="print the free WireGuard catalog as JSON")
+    catalog_parser.add_argument("--offline", action="store_true", help="use the cached server list")
+    catalog_parser.add_argument("--json", action="store_true")
 
     listing = sub.add_parser("countries", help="list available countries")
     listing.add_argument("--free", action="store_true", help="only countries with free-tier servers")
@@ -443,13 +294,13 @@ def build_parser():
     listing.add_argument("--offline", action="store_true", help="use the cached server list")
     listing.add_argument("--json", action="store_true")
 
-    servers = sub.add_parser("servers", help="list servers in a country")
+    servers = sub.add_parser("servers", help="list servers in a country, lowest load first")
     servers.add_argument("--country", required=True)
     servers.add_argument("--offline", action="store_true", help="use the cached server list")
     servers.add_argument("--json", action="store_true")
     _add_pool_options(servers)
 
-    connect = sub.add_parser("connect", help="bring up a tunnel")
+    connect = sub.add_parser("connect", help="bring up a tunnel, or switch servers if one is already up")
     connect.add_argument("--country")
     connect.add_argument("--server")
     connect.add_argument("--random", action="store_true")
@@ -457,7 +308,10 @@ def build_parser():
     connect.add_argument("--offline", action="store_true", help="use the cached server list")
     connect.add_argument("--dry-run", action="store_true")
     connect.add_argument("--json", action="store_true")
-    connect.add_argument("--no-dns", action="store_true")
+    connect.add_argument("--no-dns", action="store_true", help="keep the system resolver")
+    connect.add_argument(
+        "--no-ssh-guard", action="store_true", help="on Linux over SSH, also route this SSH session through the tunnel"
+    )
     connect.add_argument("--allowed-ips", default=wireguard.ALLOWED_IPS)
     connect.add_argument("--mtu", type=int, default=wireguard.DEFAULT_MTU)
     _add_pool_options(connect)
@@ -470,6 +324,7 @@ def build_parser():
 
 
 COMMANDS = {
+    "menu": cmd_menu,
     "doctor": cmd_doctor,
     "login": cmd_login,
     "logout": cmd_logout,
@@ -484,15 +339,25 @@ COMMANDS = {
 
 
 def _command_error(args, message, kind="failed"):
-    if args.json:
+    if getattr(args, "json", False):
         print(json.dumps({"error": message, "kind": kind}), file=sys.stderr)
     else:
         print("error: %s" % message, file=sys.stderr)
     return 2
 
 
+def _interactive():
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
 def main(argv=None):
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command is None:
+        if not _interactive():
+            parser.print_help()
+            return 2
+        args.command = "menu"
     try:
         return COMMANDS[args.command](args)
     except (SessionMissing, SessionExpired) as error:

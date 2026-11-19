@@ -7,7 +7,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
-from . import cache, keychain
+from . import cache, credentials
 
 SERVICE = "protonx"
 ACCOUNT = "identity"
@@ -70,7 +70,7 @@ def _from_dict(data):
 
 def _migrate_from_keychain():
     try:
-        return _from_dict(keychain.read_json(SERVICE, ACCOUNT))
+        return _from_dict(credentials.read_json(SERVICE, ACCOUNT))
     except Exception:
         return None
 

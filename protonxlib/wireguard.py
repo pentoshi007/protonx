@@ -1,8 +1,13 @@
-from . import helper
+from . import system, wgconf
 from .errors import TunnelError
 
+if system.IS_WINDOWS:
+    from . import tunnel_windows as backend
+else:
+    from . import helper as backend
+
 DEFAULT_DNS = "10.2.0.1"
-DEFAULT_MTU = 1420
+DEFAULT_MTU = wgconf.DEFAULT_MTU
 DEFAULT_ADDRESS = "10.2.0.2/32"
 ALLOWED_IPS = "0.0.0.0/0"
 DEFAULT_KEEPALIVE = 25
@@ -18,8 +23,9 @@ def config(
     address=DEFAULT_ADDRESS,
     allowed_ips=ALLOWED_IPS,
     keepalive=DEFAULT_KEEPALIVE,
+    bypass_source=None,
 ):
-    return {
+    settings = {
         "private_key": private_key,
         "address": address,
         "peer_public_key": peer_public_key,
@@ -30,22 +36,32 @@ def config(
         "mtu": int(mtu),
         "keepalive": keepalive,
     }
+    if bypass_source:
+        settings["bypass_source"] = bypass_source
+    return settings
 
 
 def preview(settings):
-    return helper.call({"command": "render", "config": settings})["config"]
+    try:
+        return wgconf.render(wgconf.validate(settings), with_dns=system.IS_WINDOWS)
+    except wgconf.ConfigError as error:
+        raise TunnelError(str(error)) from error
+
+
+def available():
+    return backend.available()
 
 
 def up(settings):
-    return helper.up(settings)
+    return backend.up(settings)
 
 
 def down():
-    return helper.down()
+    return backend.down()
 
 
 def status():
-    return helper.status()
+    return backend.status()
 
 
 def peer(settings):

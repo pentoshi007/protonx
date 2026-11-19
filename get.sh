@@ -6,6 +6,7 @@ VERSION="${PROTONX_VERSION:-latest}"
 
 fail() { printf '[!!] %s\n' "$1" >&2; exit 1; }
 
+[ "$(uname -s)" = "Darwin" ] || fail "this installs the macOS app. On Linux use: curl -fsSL https://raw.githubusercontent.com/$REPO/main/cli/get.sh | bash"
 command -v curl >/dev/null 2>&1 || fail "curl is required"
 command -v shasum >/dev/null 2>&1 || fail "shasum is required"
 
