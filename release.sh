@@ -57,4 +57,12 @@ tar -xzf "$OUT/$NAME.tar.gz" -C "$CHECK"
   exit 1
 }
 rm -rf "$CHECK"
-printf '%s\n%s\n' "$OUT/$NAME.tar.gz" "$OUT/$NAME.tar.gz.sha256"
+
+printf '\n== Android ==\n'
+VERSION="$VERSION" OUT_DIR="$OUT" "$ROOT/android/package-release.sh"
+
+printf '%s\n%s\n%s\n%s\n' \
+  "$OUT/$NAME.tar.gz" \
+  "$OUT/$NAME.tar.gz.sha256" \
+  "$OUT/protonx-$VERSION-android.apk" \
+  "$OUT/protonx-$VERSION-android.apk.sha256"

@@ -9,3 +9,7 @@ vendor/
 node_modules/
 *.tgz
 dist/
+android/.gradle/
+android/.kotlin/
+android/local.properties
+android/app/build/

@@ -16,11 +16,11 @@ class VersionTests(unittest.TestCase):
 
 
 class CheckTests(unittest.TestCase):
-    @mock.patch("protonxlib.update.latest_release", return_value="1.2.0")
+    @mock.patch("protonxlib.update.latest_release", return_value="9.9.9")
     def test_newer_release_is_an_update(self, latest):
         status = update.check()
         self.assertTrue(status["update"])
-        self.assertEqual(status["latest"], "1.2.0")
+        self.assertEqual(status["latest"], "9.9.9")
         self.assertEqual(status["current"], update.__version__)
 
     @mock.patch("protonxlib.update.latest_release", return_value=update.__version__)
