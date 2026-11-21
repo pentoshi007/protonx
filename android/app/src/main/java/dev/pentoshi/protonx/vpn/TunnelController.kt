@@ -70,10 +70,12 @@ class TunnelController(context: Context) {
             val entry = logical.wireguardEntries.firstOrNull()
                 ?: throw TunnelFailure("${logical.displayName()} has no WireGuard entry.")
             val identity = acceptedIdentity()
-            if (!bringUp(entry, identity)) {
-                // A handshake that forwards nothing means Proton did not bind this
-                // key to the session, so rotate it once and retry.
-                if (!bringUp(entry, rotateIdentity())) throw TunnelFailure(FLOW_ERROR)
+            // A slow handshake is not a rejected key: give the same key a second
+            // window, then rotate once, which is the only case Proton needs.
+            if (!bringUp(entry, identity) && !bringUp(entry, identity) &&
+                !bringUp(entry, rotateIdentity())
+            ) {
+                throw TunnelFailure(FLOW_ERROR)
             }
             val server = SavedServer.of(logical)
             store.setCurrentServer(server)
@@ -248,9 +250,9 @@ class TunnelController(context: Context) {
 
     companion object {
         const val TUNNEL_NAME = "protonx"
-        const val FLOW_ERROR = "The tunnel is not carrying traffic. Proton refused this device key."
+        const val FLOW_ERROR = "The tunnel came up but no traffic passed through it. Try connecting again."
         const val DROPPED_ERROR = "The tunnel stopped carrying traffic. Reconnect to continue."
-        private const val CONNECT_PROOF_MS = 12_000L
+        private const val CONNECT_PROOF_MS = 15_000L
         private const val WATCHDOG_PROOF_MS = 8_000L
         private val WATCHDOG_MS = longArrayOf(5_000, 15_000, 30_000)
     }
