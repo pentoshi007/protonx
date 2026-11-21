@@ -1,5 +1,6 @@
 package dev.pentoshi.protonx
 
+import dev.pentoshi.protonx.core.ClientVersionRefused
 import dev.pentoshi.protonx.core.HttpRequest
 import dev.pentoshi.protonx.core.HttpResponse
 import dev.pentoshi.protonx.core.KeyConflict
@@ -110,6 +111,38 @@ class ProtonApiTest {
             }
         }
         assertTrue(api.signIn("user", "password") is SignInOutcome.NeedsCode)
+    }
+
+    @Test
+    fun signInSendsTheEngineClientVersionOnEveryAuthCall() {
+        val api = api { request ->
+            when {
+                request.url.endsWith("/auth/v4/sessions") ->
+                    HttpResponse(200, """{"Code":1000,"UID":"uid","AccessToken":"carrier"}""")
+                request.url.endsWith("/auth/v4/info") -> HttpResponse(200, infoBody)
+                else -> HttpResponse(200, """{"Code":1000,"UID":"uid","AccessToken":"at","RefreshToken":"rt"}""")
+            }
+        }
+        api.signIn("user", "password")
+
+        // Proton retires client versions server-side; a constant that drifted from the engine's
+        // (android-mail@3.0.12) made every sign-in fail with "Operation not allowed".
+        assertEquals(ProtonApi.VPN_APP_VERSION, ProtonApi.AUTH_APP_VERSION)
+        assertEquals(3, requests.size)
+        assertTrue(requests.all { it.headers["x-pm-appversion"] == "macos-vpn@4.5.0" })
+    }
+
+    @Test
+    fun aRetiredClientVersionAsksForAnAppUpdate() {
+        for (code in listOf(ProtonApi.REFUSED_CLIENT_VERSION, ProtonApi.RETIRED_CLIENT_VERSION)) {
+            requests.clear()
+            val api = api { HttpResponse(422, """{"Code":$code,"Error":"Operation not allowed"}""") }
+            val failure = runCatching { api.signIn("user", "password") }.exceptionOrNull()
+
+            assertTrue("code $code must map to a version error", failure is ClientVersionRefused)
+            assertTrue(failure!!.message!!.contains("latest ProtonX release"))
+            assertTrue(failure.message!!.contains(code.toString()))
+        }
     }
 
     private val infoBody: String

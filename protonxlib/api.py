@@ -9,8 +9,9 @@ from .errors import ApiError, ProtonxError, SessionExpired
 
 BASE_URL = "https://vpn-api.proton.me"
 AUTH_BASE = "https://mail-api.proton.me"
+# Proton retires client versions server-side (Code 8004 "Operation not allowed"), and both
+# hosts are gated by the same list, so the whole engine sends exactly one version.
 APP_VERSION = "macos-vpn@4.5.0"
-AUTH_APP_VERSION = "android-mail@3.0.12"
 USER_AGENT = "ProtonVPN/4.5.0 (macOS)"
 ACCEPT = "application/vnd.protonmail.v1+json"
 
@@ -115,6 +116,11 @@ def _raise_auth_error(status, payload):
         raise ProtonxError(
             "Proton asked for a human-verification check for this sign-in. Open "
             "account.proton.me in a browser, sign in there once, then try again here."
+        )
+    if code in (8004, 5003):
+        raise ProtonxError(
+            f"Proton no longer accepts this version of the app (code {code}). Install the "
+            "latest ProtonX release: https://github.com/pentoshi007/protonx/releases"
         )
     raise ApiError(status, code, payload.get("Error") or "request failed")
 

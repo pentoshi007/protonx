@@ -1,6 +1,6 @@
 {
   "name": "@pentoshi/protonx",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Pick any Proton VPN country and server from the terminal, with an interactive menu. Linux, Windows and macOS.",
   "keywords": [
     "protonvpn",

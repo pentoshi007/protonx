@@ -7,6 +7,7 @@ class ApiException(val status: Int, val code: Int?, message: String) : Exception
 class SessionExpired(message: String = "Sign in to Proton again.") : Exception(message)
 class KeyConflict(message: String) : Exception(message)
 class HumanVerification(message: String) : Exception(message)
+class ClientVersionRefused(message: String) : Exception(message)
 
 sealed interface SignInOutcome {
     data class SignedIn(val session: Session) : SignInOutcome
@@ -14,9 +15,9 @@ sealed interface SignInOutcome {
 }
 
 /**
- * The VPN API and the account API live on different hosts and speak different
- * app versions; both are kept identical to the desktop engine, which Proton
- * has already accepted.
+ * The VPN API and the account API live on different hosts, but Proton gates the
+ * auth routes on the client version, so both send the single version the desktop
+ * engine is proven to be accepted with.
  */
 class ProtonApi(
     private val transport: Transport = UrlConnectionTransport(),
@@ -127,6 +128,9 @@ class ProtonApi(
                         "sign in there once, then try again here.",
                 )
             }
+            if (code == REFUSED_CLIENT_VERSION || code == RETIRED_CLIENT_VERSION) {
+                throw ClientVersionRefused(versionRefusedMessage(code))
+            }
             throw ApiException(response.status, code, Json.text(payload, "Error").ifBlank { "request failed" })
         }
         return payload
@@ -153,6 +157,9 @@ class ProtonApi(
             throw KeyConflict(Json.text(payload, "Error"))
         }
         if (response.status == 401) throw SessionExpired()
+        if (code == REFUSED_CLIENT_VERSION || code == RETIRED_CLIENT_VERSION) {
+            throw ClientVersionRefused(versionRefusedMessage(code))
+        }
         throw ApiException(
             response.status,
             code,
@@ -206,11 +213,25 @@ class ProtonApi(
         const val VPN_BASE = "https://vpn-api.proton.me"
         const val AUTH_BASE = "https://mail-api.proton.me"
         const val VPN_APP_VERSION = "macos-vpn@4.5.0"
-        const val AUTH_APP_VERSION = "android-mail@3.0.12"
+
+        /**
+         * Proton retires client versions on the auth routes; the retired android-mail@3.0.12
+         * made every sign-in fail with 8004 "Operation not allowed". Derived from the engine
+         * version so the two cannot drift, and re-checked with:
+         *   curl -s -X POST https://mail-api.proton.me/auth/v4/sessions \
+         *     -H 'content-type: application/json' -H 'x-pm-appversion: <version>' -d '{}'
+         */
+        const val AUTH_APP_VERSION = VPN_APP_VERSION
         const val USER_AGENT = "ProtonVPN/4.5.0 (macOS)"
         const val ACCEPT = "application/vnd.protonmail.v1+json"
         const val KEY_FINGERPRINT_CONFLICT = 2500
         const val HUMAN_VERIFICATION = 9001
+        const val REFUSED_CLIENT_VERSION = 8004
+        const val RETIRED_CLIENT_VERSION = 5003
         val LOGICAL_PARAMS = mapOf("WithEntriesForProtocols" to "WireGuardUDP", "WithState" to "true")
+
+        private fun versionRefusedMessage(code: Int): String =
+            "Proton no longer accepts this app's client version (code $code). " +
+                "Install the latest ProtonX release from github.com/pentoshi007/protonx/releases."
     }
 }

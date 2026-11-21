@@ -200,6 +200,7 @@ The apps and CLI update separately.
 | Symptom | Fix |
 | --- | --- |
 | Sign-in fails | Wrong credentials return code 8002. If Proton asks for a captcha, sign in once at account.proton.me. |
+| Sign-in shows "Operation not allowed" or says the app version is not accepted | That build sends a Proton client version Proton has since retired. Install the latest release: [Releases](https://github.com/pentoshi007/protonx/releases/latest). |
 | "the protonx helper is not running" | Re-run the installer: `get.sh` for the app, `cli/get.sh` for the CLI. |
 | Country list is empty | Sign in, then refresh. |
 | Connects but no internet | Reconnect: ProtonX checks that data really flows, drops a tunnel that carries nothing, and registers a fresh VPN key when Proton rejects the old one. If it still fails, run `protonx repair` (Repair Network in the app). |
