@@ -15,7 +15,7 @@ private func sample(fresh: Bool = true) -> Catalog {
 
 private func snapshot(_ target: Destination? = nil) -> Status {
     let server = target.map { LastServer(country: $0.country, server: $0.server, label: $0.server, city: "Test", connectedAt: nil) }
-    return Status(up: server != nil, interface: server.map { _ in "utun1" }, address: nil, peer: nil, server: server, dns: nil)
+    return Status(up: server != nil, interface: server.map { _ in "utun1" }, address: nil, peer: nil, server: server, dns: nil, flowError: nil)
 }
 
 private final class StubEngine: EngineAccess, @unchecked Sendable {

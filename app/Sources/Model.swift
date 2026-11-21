@@ -74,6 +74,7 @@ struct Status: Decodable, Equatable, Sendable {
     let peer: Peer?
     let server: LastServer?
     let dns: DNSReport?
+    let flowError: String?
 }
 
 struct Account: Decodable, Equatable, Sendable {

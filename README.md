@@ -148,7 +148,7 @@ protonx update --check
 protonx update
 ```
 
-Add `--json` to any command for machine-readable output, `--offline` to use the cached server list, `--paid` to include plus-tier servers, `--random` to pick a random server, `--no-dns` to keep the system resolver, and `--dry-run` to print the configuration without connecting.
+Add `--json` to any command for machine-readable output, `--offline` to use the cached server list, `--paid` to include plus-tier servers, `--random` to pick a random server, `--no-dns` to keep the system resolver, and `--dry-run` to print the configuration without connecting. `connect --offline` still needs a signed-in Proton account and access to Proton.
 
 ## Update
 
@@ -171,7 +171,7 @@ The app and CLI update separately.
 | Sign-in fails | Wrong credentials return code 8002. If Proton asks for a captcha, sign in once at account.proton.me. |
 | "the protonx helper is not running" | Re-run the installer: `get.sh` for the app, `cli/get.sh` for the CLI. |
 | Country list is empty | Sign in, then refresh. |
-| Connects but no internet | Disconnect and reconnect. If DNS is still stale, run `protonx repair` or choose `Repair Network` in the app. |
+| Connects but no internet | Reconnect: ProtonX checks that data really flows, drops a tunnel that carries nothing, and registers a fresh VPN key when Proton rejects the old one. If it still fails, run `protonx repair` (Repair Network in the app). |
 | Internet stops after a crash, reboot, or update | Run `protonx repair` (or `Repair Network` in the app). It stops any tunnel, restores DNS, flushes the resolver cache, and reports whether DNS and the internet work. |
 | Menu-bar shield missing | `open -a ProtonX`; check `Launch at Login` in the account menu. |
 | SSH session drops on Linux | Keep the SSH guard on in Settings. macOS and Windows do not have the guard; connect from a local terminal. |

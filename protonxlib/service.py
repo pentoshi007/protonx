@@ -6,8 +6,9 @@ from urllib.error import URLError
 
 from . import api, auth, catalog, credentials, identity, login, netstate, recovery, selection, state, system, wireguard
 from .countries import NAMES
-from .errors import ProtonxError, SelectionError, TunnelError
+from .errors import NO_TRAFFIC, ApiError, ProtonxError, SelectionError, SessionMissing, TunnelError
 
+KEY_FINGERPRINT_CONFLICT = (409, 2500)
 NETWORK_ERRORS = (URLError, TimeoutError)
 TOOL_PATH = "/opt/homebrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -22,9 +23,7 @@ class ConnectOptions:
     allowed_ips: str = wireguard.ALLOWED_IPS
 
 
-def client(offline=False, persist=True):
-    if offline:
-        return None
+def client(persist=True):
     return auth.make_client(auth.load_session(), persist=persist)
 
 
@@ -120,14 +119,21 @@ def _entry_for(logical):
     return sorted(entries, key=lambda entry: entry.name)[0]
 
 
-def _register(api_client, keys):
+def _registered_identity(api_client, replace=False):
     if api_client is None:
-        return "skipped (offline)"
-    try:
-        api_client.register_key(keys["ed25519"])
-        return "registered"
-    except ProtonxError as error:
-        return "unregistered (%s)" % error
+        raise SessionMissing("sign in to ProtonX before connecting")
+    if not replace:
+        keys = identity.load_or_create()
+        try:
+            api_client.register_key(keys.ed25519_pub_b64)
+            return keys
+        except ApiError as error:
+            if (error.status, error.code) != KEY_FINGERPRINT_CONFLICT:
+                raise
+    # Keep the saved key until Proton accepts the replacement.
+    replacement = identity.create()
+    api_client.register_key(replacement.ed25519_pub_b64)
+    return identity.save(replacement)
 
 
 def bypass_source(options):
@@ -160,16 +166,37 @@ def _record(logical, settings):
     }
 
 
-def connect(logical, api_client, options, dry_run=False):
-    keys = identity.load_or_create()
-    settings = tunnel_settings(keys, _entry_for(logical), options)
+def _bring_up(logical, entry, keys, options):
+    settings = tunnel_settings(keys, entry, options)
     record = _record(logical, settings)
-    if dry_run:
-        return dict(record, ok=True, dry_run=True, dns=settings["dns"], config=wireguard.preview(settings))
-    registration = _register(api_client, identity.public_keys(keys))
     report = wireguard.up(settings, record)
     if not report.get("up"):
         raise TunnelError("the helper did not report an active tunnel")
+    return record, report
+
+
+def connect(logical, api_client, options, dry_run=False):
+    entry = _entry_for(logical)
+    if dry_run:
+        keys = identity.load_or_create()
+        settings = tunnel_settings(keys, entry, options)
+        return dict(
+            _record(logical, settings),
+            ok=True,
+            dry_run=True,
+            dns=settings["dns"],
+            config=wireguard.preview(settings),
+        )
+    keys = _registered_identity(api_client)
+    try:
+        record, report = _bring_up(logical, entry, keys, options)
+    except TunnelError as error:
+        # The handshake finished but nothing crossed the tunnel, so Proton will
+        # not use this device key. Register a fresh one once and try again.
+        if NO_TRAFFIC not in str(error):
+            raise
+        keys = _registered_identity(api_client, replace=True)
+        record, report = _bring_up(logical, entry, keys, options)
     state.save(record)
     return dict(
         record,
@@ -177,8 +204,8 @@ def connect(logical, api_client, options, dry_run=False):
         interface=report.get("interface"),
         address=report.get("address"),
         identity=keys.x25519_pub_b64[:16],
-        registration=registration,
-        ssh_guard=settings.get("bypass_source"),
+        registration="registered",
+        ssh_guard=tunnel_settings(keys, entry, options).get("bypass_source"),
         retried=report.get("retried", False),
     )
 
@@ -204,6 +231,7 @@ def status():
         "dns": report.get("dns") or {},
         "ssh_guard": report.get("bypass_source"),
         "fallback": report.get("fallback", False),
+        "flow_error": report.get("flow_error"),
     }
 
 

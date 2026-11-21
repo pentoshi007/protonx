@@ -9,8 +9,12 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 from helper_common import HelperError, run, tool, write_private, write_public
+from protonxlib import netstate
 from protonxlib import system as host
 from protonxlib import wgconf
+from protonxlib.errors import NO_TRAFFIC
+
+flow_problem = netstate.flow_problem
 
 if sys.platform == "darwin":
     import helper_macos as system
@@ -31,6 +35,11 @@ INTERFACE_EXIT_TIMEOUT = 2
 START_ATTEMPTS = 2
 RETRY_DELAY = 0.6
 META_FIELDS = ("country", "server", "label", "city", "endpoint")
+# Seconds after a connect when the data path is re-checked. A server that drops
+# the peer later would otherwise leave a live interface blackholing everything.
+FLOW_WATCH = (3, 12, 30, 60)
+FLOW_RECHECK = 1.5
+_watchdog = {"generation": 0}
 
 
 def _state_dir():
@@ -57,6 +66,31 @@ def _write_tunnel(payload):
 def _clear_tunnel():
     try:
         os.unlink(_tunnel_path())
+    except FileNotFoundError:
+        pass
+
+
+def _flow_path():
+    return os.path.join(_state_dir(), "flow.json")
+
+
+def flow_failure():
+    try:
+        with open(_flow_path()) as handle:
+            payload = json.load(handle)
+        return {"reason": payload.get("reason") or NO_TRAFFIC, "at": int(payload.get("at", 0))}
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _record_flow_failure():
+    os.makedirs(_state_dir(), mode=0o755, exist_ok=True)
+    write_public(_flow_path(), json.dumps({"reason": NO_TRAFFIC, "at": int(time.time())}))
+
+
+def _clear_flow_failure():
+    try:
+        os.unlink(_flow_path())
     except FileNotFoundError:
         pass
 
@@ -110,6 +144,7 @@ def status():
         "bypass_source": system.current_bypass() if up else None,
         "server": record.get("server") if record else None,
         "dns": _dns_report(up),
+        "flow_error": None if up else (flow_failure() or {}).get("reason"),
     }
 
 
@@ -135,6 +170,7 @@ def _wait_for_interface_exit(name):
 
 def _stop_tunnel():
     warnings = []
+    _watchdog["generation"] += 1
     name = system.interface_name()
     if os.path.exists(CONFIG_PATH):
         result = run([tool("wg-quick"), "down", CONFIG_PATH], check=False)
@@ -191,6 +227,12 @@ def _start_tunnel(text, dns, bypass, meta):
     if not report["up"]:
         raise HelperError("wg-quick reported success but no tunnel interface exists")
     system.apply_dns(dns)
+    # A completed handshake proves the peers agree on keys, not that the server
+    # forwards traffic: a key it will not accept leaves a live interface that
+    # silently blackholes everything. Refuse to report that as connected.
+    problem = flow_problem()
+    if problem:
+        raise HelperError(problem)
     _write_tunnel(
         {
             "interface": report.get("interface"),
@@ -200,9 +242,47 @@ def _start_tunnel(text, dns, bypass, meta):
             "started_at": int(time.time()),
         }
     )
+    _clear_flow_failure()
     report["server"] = meta
     report["dns"] = _dns_report(True)
+    _start_watchdog(report.get("interface"))
     return report
+
+
+def _still_ours(expected, generation):
+    return _watchdog["generation"] == generation and system.interface_name() == expected
+
+
+def _flow_dead():
+    if flow_problem() is None:
+        return False
+    time.sleep(FLOW_RECHECK)
+    return flow_problem() is not None
+
+
+def _watch_flow(expected, generation):
+    started = time.monotonic()
+    for deadline in FLOW_WATCH:
+        time.sleep(max(0.0, started + deadline - time.monotonic()))
+        if not _still_ours(expected, generation):
+            return
+        if not _flow_dead():
+            continue
+        with TUNNEL_LOCK:
+            if not _still_ours(expected, generation):
+                return
+            _record_flow_failure()
+            _stop_tunnel()
+            _watchdog["generation"] += 1
+        return
+
+
+def _start_watchdog(interface):
+    if not interface:
+        return
+    _watchdog["generation"] += 1
+    generation = _watchdog["generation"]
+    threading.Thread(target=_watch_flow, args=(interface, generation), daemon=True).start()
 
 
 
@@ -245,6 +325,7 @@ def up(config, meta=None):
 def repair():
     actions = []
     actions.extend(_stop_tunnel())
+    _clear_flow_failure()
     flush = getattr(system, "flush_dns", None)
     if flush is not None:
         flush()

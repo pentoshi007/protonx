@@ -26,7 +26,7 @@ def _emit(payload):
 
 
 def _client(args):
-    return service.client(offline=getattr(args, "offline", False), persist=not args.no_persist)
+    return service.client(persist=not args.no_persist)
 
 
 def _pool(args, client=None):
@@ -191,7 +191,8 @@ def _print_plan(payload):
 
 
 def cmd_connect(args):
-    client = _client(args)
+    # A cached server list does not replace Proton's authorization of the VPN key.
+    client = None if args.offline and args.dry_run else _client(args)
     pool = _pool(args, client)
     country, server = service.last_target() if args.restore else (args.country, args.server)
     options = _options(args)
@@ -349,7 +350,7 @@ def build_parser():
     connect.add_argument("--server")
     connect.add_argument("--random", action="store_true")
     connect.add_argument("--restore", action="store_true", help="reconnect to the last used server")
-    connect.add_argument("--offline", action="store_true", help="use the cached server list")
+    connect.add_argument("--offline", action="store_true", help="use the cached server list; connecting still needs Proton sign-in")
     connect.add_argument("--dry-run", action="store_true")
     connect.add_argument("--json", action="store_true")
     connect.add_argument("--no-dns", action="store_true", help="keep the system resolver")

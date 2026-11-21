@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import os
+import tempfile
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -88,15 +89,17 @@ def load_or_create():
 
 
 def save(identity):
-    os.makedirs(cache.CONFIG_DIR, mode=0o700, exist_ok=True)
-    with open(IDENTITY_PATH, "w") as handle:
-        json.dump(identity.as_dict(), handle, indent=2)
-    os.chmod(IDENTITY_PATH, 0o600)
+    directory = os.path.dirname(IDENTITY_PATH)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode="w", dir=directory, delete=False) as handle:
+        try:
+            json.dump(identity.as_dict(), handle, indent=2)
+            handle.close()
+            os.replace(handle.name, IDENTITY_PATH)
+        finally:
+            if os.path.exists(handle.name):
+                os.unlink(handle.name)
     return identity
-
-
-def public_keys(identity):
-    return {"ed25519": identity.ed25519_pub_b64, "x25519": identity.x25519_pub_b64}
 
 
 def dump(identity):

@@ -7,7 +7,7 @@ import socket
 import time
 
 from . import system
-from .errors import TunnelError
+from .errors import NO_TRAFFIC, TunnelError
 
 SOCKET_PATH = "/var/run/protonx/helper.sock"
 READ_LIMIT = 65536
@@ -141,7 +141,10 @@ def up(config, meta=None):
         request["meta"] = meta
     try:
         return call(request)
-    except TunnelError:
+    except TunnelError as error:
+        # A tunnel that carries no traffic must never be reported as usable.
+        if NO_TRAFFIC in str(error):
+            raise
         # The tunnel may be up even though the answer never arrived.
         report = settled()
         if report and report.get("up") and _same_server(report, meta):

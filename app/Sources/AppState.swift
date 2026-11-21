@@ -287,7 +287,7 @@ final class AppState {
         case .success(let fresh):
             status = fresh
             lastServer = fresh.server
-            statusError = nil
+            statusError = fresh.flowError
         case .failure(let error):
             status = nil
             statusError = error.localizedDescription

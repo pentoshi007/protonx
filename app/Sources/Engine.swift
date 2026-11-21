@@ -25,6 +25,7 @@ private struct HelperReport: Decodable {
     let peers: [HelperPeer]
     let server: LastServer?
     let dns: DNSReport?
+    let flowError: String?
 }
 
 private struct HelperPeer: Decodable {
@@ -70,7 +71,8 @@ struct Engine: EngineAccess {
             Peer(latestHandshake: $0.latestHandshake, rxBytes: $0.rxBytes, txBytes: $0.txBytes)
         }
         return Status(up: decoded.up, interface: decoded.interface, address: decoded.address,
-                      peer: peer, server: decoded.server ?? HelperSocket.lastServer(), dns: decoded.dns)
+                      peer: peer, server: decoded.server ?? HelperSocket.lastServer(), dns: decoded.dns,
+                      flowError: decoded.flowError)
     }
 
     func catalog(offline: Bool) throws -> Catalog {
@@ -83,7 +85,9 @@ struct Engine: EngineAccess {
     }
 
     func connect(_ target: Destination) throws {
-        _ = try run(["connect", "--offline", "--country", target.country, "--server", target.server, "--json"], timeout: 78)
+        // A cached list can name an address Proton has since moved, which leaves
+        // a tunnel that carries nothing. Fetch a current list as part of connecting.
+        _ = try run(["connect", "--country", target.country, "--server", target.server, "--json"], timeout: 78)
     }
 
     func disconnect() throws {

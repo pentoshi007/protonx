@@ -79,6 +79,8 @@ class SwitchTests(unittest.TestCase):
         resources.enter_context(patch.object(helper, "tool", lambda name: name))
         resources.enter_context(patch.object(helper, "run", side_effect=self.run_tool))
         resources.enter_context(patch.object(helper, "status", side_effect=self.status))
+        resources.enter_context(patch.object(helper, "flow_problem", return_value=None))
+        resources.enter_context(patch.object(helper, "_start_watchdog"))
         self.resolve = resources.enter_context(patch.object(socket, "getaddrinfo", side_effect=self.resolve_host))
 
     def write_dns(self, servers):
@@ -154,3 +156,23 @@ class SwitchTests(unittest.TestCase):
         self.assertTrue(helper.up(variant(endpoint_host="192.0.2.25", dns=None))["up"])
         self.assertEqual(self.dns, ["192.168.1.1"])
         self.assertFalse(self.dns_state.exists())
+
+    def test_a_tunnel_that_carries_no_traffic_is_never_reported_connected(self):
+        dead = helper.NO_TRAFFIC + " (api.proton.me:443 failed: timed out)"
+        with patch.object(helper, "flow_problem", return_value=dead):
+            with self.assertRaisesRegex(helper.HelperError, "normal network settings"):
+                helper.up(variant(endpoint_host="192.0.2.1"))
+        self.assertFalse(self.active)
+        self.assertFalse(os.path.exists(helper.CONFIG_PATH))
+        self.assertEqual(self.dns, ["192.168.1.1"])
+
+    def test_watchdog_tears_down_a_tunnel_that_stops_forwarding(self):
+        helper.up(variant(endpoint_host="192.0.2.1"))
+        generation = helper._watchdog["generation"]
+        with patch.object(helper, "FLOW_WATCH", (0,)), patch.object(helper, "FLOW_RECHECK", 0), patch.object(
+            helper, "flow_problem", return_value=helper.NO_TRAFFIC + " (dead)"
+        ), patch.object(helper, "_stop_tunnel") as stop, patch.object(helper, "_record_flow_failure") as record:
+            helper._watch_flow("utun9", generation)
+        stop.assert_called_once()
+        record.assert_called_once()
+        self.assertNotEqual(helper._watchdog["generation"], generation)

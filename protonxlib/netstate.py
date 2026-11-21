@@ -2,9 +2,11 @@ import os
 import re
 import shutil
 import socket
+import struct
 import subprocess
 
 from . import system
+from .errors import NO_TRAFFIC
 
 TUNNEL_RESOLVERS = ("10.2.0.1", "10.200.")
 NETWORKSETUP = "/usr/sbin/networksetup"
@@ -126,3 +128,34 @@ def internet():
             return True
     except OSError:
         return False
+
+
+FLOW_RESOLVER = "10.2.0.1"
+FLOW_PROBE_NAME = "proton.me"
+FLOW_TIMEOUT = 3
+
+
+def _query(name, ident):
+    header = struct.pack("!HHHHHH", ident, 0x0100, 1, 0, 0, 0)
+    labels = b"".join(bytes([len(part)]) + part.encode() for part in name.split("."))
+    return header + labels + b"\x00" + struct.pack("!HH", 1, 1)
+
+
+def flow_problem(resolver=FLOW_RESOLVER, timeout=FLOW_TIMEOUT, name=FLOW_PROBE_NAME):
+    """Return why the tunnel carries no traffic, or None when data flows.
+
+    The probe talks to the resolver that lives inside the tunnel, using a bare
+    IP so nothing outside the interface can make it pass or fail.
+    """
+    ident = struct.unpack("!H", os.urandom(2))[0]
+    payload = _query(name, ident)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.settimeout(timeout)
+            probe.sendto(payload, (resolver, 53))
+            reply, _ = probe.recvfrom(2048)
+    except OSError as error:
+        return "%s (no answer from %s: %s)" % (NO_TRAFFIC, resolver, error)
+    if len(reply) < 12 or struct.unpack("!H", reply[:2])[0] != ident:
+        return "%s (unexpected answer from %s)" % (NO_TRAFFIC, resolver)
+    return None
