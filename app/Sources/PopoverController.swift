@@ -109,7 +109,11 @@ final class PopoverController: NSViewController {
     }
 
     private func showAccountMenu() {
-        presentAccountMenu()
+        // Present after the button's mouse event finishes. Popping the menu
+        // inside that event lets the same mouse-up dismiss it on the first
+        // click; the second click only worked because the window was already
+        // active by then.
+        DispatchQueue.main.async { [weak self] in self?.presentAccountMenu() }
     }
 
     private func presentAccountMenu(capture: String? = nil, cancelAfter: TimeInterval? = nil) {

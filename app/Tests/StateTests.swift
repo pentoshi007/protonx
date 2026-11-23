@@ -102,8 +102,9 @@ private enum StateTests {
         try await repairRestoresNetworkAndRefreshesStatus()
         savedServersPersistAndSearchUsesServerData()
         saveControlTogglesThroughTheButton()
+        popoverControlsAcceptTheFirstClick()
         try await searchControlFiltersTheTable()
-        print("11 ProtonX state scenarios passed")
+        print("12 ProtonX state scenarios passed")
     }
 
     static func restoredSessionStaysInCheckState() async throws {
@@ -264,6 +265,11 @@ private enum StateTests {
         require(AppState(engine: StubEngine(), defaults: defaults).savedRoutes == [nl], "star control persists")
         star.performClick(nil)
         require(state.savedRoutes.isEmpty, "star control removes the server")
+    }
+
+    static func popoverControlsAcceptTheFirstClick() {
+        let button = ConsoleButton("Account", symbol: "person.crop.circle", style: .icon, height: 32)
+        require(button.acceptsFirstMouse(for: nil), "popover controls must accept the first click")
     }
 
     static func searchControlFiltersTheTable() async throws {

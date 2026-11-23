@@ -312,6 +312,10 @@ final class ConsoleButton: NSButton {
 
     override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
+    // The menu-bar popover is usually not key when it first appears. Without
+    // this, the first click only activates its window and the control never
+    // fires; the second click works, which is the reported symptom.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyContent() }
 
     private var resolvedFill: NSColor {

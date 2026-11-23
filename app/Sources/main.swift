@@ -227,6 +227,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         (panel.contentViewController as? PopoverController)?.render()
         activate()
         panel.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        // A menu-bar popover is not key until something makes it key. Without
+        // this, the first click inside it is spent activating the window and a
+        // menu opened by that click is dismissed immediately.
+        panel.contentViewController?.view.window?.makeKey()
         updateVisibility()
     }
 
@@ -532,6 +536,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
             (panel.contentViewController as? PopoverController)?.render()
             activate()
             panel.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            panel.contentViewController?.view.window?.makeKey()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
             self?.runAccountMenuProbe()
