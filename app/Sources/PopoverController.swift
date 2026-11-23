@@ -10,7 +10,6 @@ final class PopoverController: NSViewController {
     var restoreAfterAlert: (() -> Void)?
     var checkForUpdates: (() -> Void)?
     var repairNetwork: (() -> Void)?
-    var setPopoverBehavior: ((NSPopover.Behavior) -> Void)?
     var page: DirectoryPage { directory.page }
 
     private let state: AppState
@@ -131,12 +130,10 @@ final class PopoverController: NSViewController {
             }
             RunLoop.main.add(timer, forMode: .common)
         }
-        // A menu is its own window. A transient popover treats that as an outside
-        // interaction and closes on the first click, taking the menu with it.
-        // Hold the popover open for the menu's tracking loop only.
-        setPopoverBehavior?(.applicationDefined)
+        // The popover is application-defined, so opening a menu cannot make the
+        // system close it. The menu is presented after the button's mouse event
+        // so that same event cannot dismiss it either.
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: accountButton.bounds.height + 4), in: accountButton)
-        setPopoverBehavior?(.transient)
     }
 
     func accountMenuTitles() -> [String] {

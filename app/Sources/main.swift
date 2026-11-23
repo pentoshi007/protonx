@@ -11,6 +11,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
     private var popover: NSPopover?
     private var window: NSWindow?
     private var statusLabel: String?
+    private var popoverMouseMonitor: Any?
+    private var popoverKeyMonitor: Any?
+    private var popoverResignObserver: NSObjectProtocol?
 
     override init() {
         let arguments = CommandLine.arguments
@@ -240,9 +243,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         controller.openWindow = { [weak self] page in self?.showWindow(page: page) }
         controller.checkForUpdates = { [weak self] in self?.checkForUpdates() }
         controller.repairNetwork = { [weak self] in self?.repairNetwork() }
-        controller.setPopoverBehavior = { [weak self] behavior in
-            self?.popover?.behavior = behavior
-        }
         controller.dismissForAlert = { [weak self] in
             guard let self, let popover = self.popover else { return false }
             let wasShown = popover.isShown
@@ -257,7 +257,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         }
         panel.contentSize = NSSize(width: PopoverController.popoverSize.width,
                                    height: state.session.signedIn ? PopoverController.popoverSize.height : 540)
-        panel.behavior = .transient
+        panel.behavior = .applicationDefined
         panel.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         panel.delegate = self
         return panel
@@ -316,12 +316,56 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         state.setVisible(isPopover || isWindow)
     }
 
+    // The popover is application-defined so the system never closes it while a
+    // menu is tracking. These monitors restore the expected dismissals: a click
+    // in another app, Escape, or the app losing focus.
+    private func installPopoverDismissal() {
+        removePopoverDismissal()
+        popoverMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            Task { @MainActor in self?.dismissPopoverIfOutside() }
+        }
+        popoverKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53, let self, self.popover?.isShown == true else { return event }
+            self.popover?.performClose(nil)
+            return nil
+        }
+        popoverResignObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.popover?.performClose(nil) }
+        }
+    }
+
+    private func removePopoverDismissal() {
+        if let popoverMouseMonitor { NSEvent.removeMonitor(popoverMouseMonitor) }
+        if let popoverKeyMonitor { NSEvent.removeMonitor(popoverKeyMonitor) }
+        if let popoverResignObserver { NotificationCenter.default.removeObserver(popoverResignObserver) }
+        popoverMouseMonitor = nil
+        popoverKeyMonitor = nil
+        popoverResignObserver = nil
+    }
+
+    private func dismissPopoverIfOutside() {
+        guard let popover, popover.isShown else { return }
+        if let button = statusItem?.button, let window = button.window {
+            let frame = window.convertToScreen(button.convert(button.bounds, to: nil))
+            if frame.contains(NSEvent.mouseLocation) { return }
+        }
+        popover.performClose(nil)
+    }
+
     private func activate() {
         if #available(macOS 14.0, *) { NSApp.activate() } else { NSApp.activate(ignoringOtherApps: true) }
     }
 
-    func popoverDidShow(_ notification: Notification) { updateVisibility() }
-    func popoverDidClose(_ notification: Notification) { updateVisibility() }
+    func popoverDidShow(_ notification: Notification) {
+        installPopoverDismissal()
+        updateVisibility()
+    }
+    func popoverDidClose(_ notification: Notification) {
+        removePopoverDismissal()
+        updateVisibility()
+    }
     func windowDidChangeOcclusionState(_ notification: Notification) { updateVisibility() }
     func windowDidMiniaturize(_ notification: Notification) { updateVisibility() }
     func windowDidDeminiaturize(_ notification: Notification) { updateVisibility() }
