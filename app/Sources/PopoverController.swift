@@ -10,6 +10,7 @@ final class PopoverController: NSViewController {
     var restoreAfterAlert: (() -> Void)?
     var checkForUpdates: (() -> Void)?
     var repairNetwork: (() -> Void)?
+    var setPopoverBehavior: ((NSPopover.Behavior) -> Void)?
     var page: DirectoryPage { directory.page }
 
     private let state: AppState
@@ -108,34 +109,38 @@ final class PopoverController: NSViewController {
     }
 
     private func showAccountMenu() {
+        presentAccountMenu()
+    }
+
+    private func presentAccountMenu(capture: String? = nil, cancelAfter: TimeInterval? = nil) {
         guard let menu = makeAccountMenu() else { return }
+        if let cancelAfter {
+            let timer = Timer(timeInterval: cancelAfter, repeats: false) { _ in
+                if let capture, !capture.isEmpty {
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+                    process.arguments = ["-x", capture]
+                    try? process.run()
+                    process.waitUntilExit()
+                }
+                menu.cancelTracking()
+            }
+            RunLoop.main.add(timer, forMode: .common)
+        }
+        // A menu is its own window. A transient popover treats that as an outside
+        // interaction and closes on the first click, taking the menu with it.
+        // Hold the popover open for the menu's tracking loop only.
+        setPopoverBehavior?(.applicationDefined)
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: accountButton.bounds.height + 4), in: accountButton)
+        setPopoverBehavior?(.transient)
     }
 
     func accountMenuTitles() -> [String] {
         makeAccountMenu()?.items.map(\.title) ?? []
     }
 
-    func presentAccountMenuForProbe(capture: String?) {
-        guard let menu = makeAccountMenu() else { return }
-        if let capture {
-            let timer = Timer(timeInterval: 0.8, target: self, selector: #selector(captureAccountMenu(_:)),
-                              userInfo: ["menu": menu, "path": capture], repeats: false)
-            RunLoop.main.add(timer, forMode: .common)
-        }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: accountButton.bounds.height + 4), in: accountButton)
-    }
-
-    @objc private func captureAccountMenu(_ timer: Timer) {
-        guard let info = timer.userInfo as? [String: Any],
-              let menu = info["menu"] as? NSMenu,
-              let path = info["path"] as? String else { return }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = ["-x", path]
-        try? process.run()
-        process.waitUntilExit()
-        menu.cancelTracking()
+    func presentAccountMenuForProbe(capture: String?, cancelAfter: TimeInterval = 0.8) {
+        presentAccountMenu(capture: capture, cancelAfter: cancelAfter)
     }
 
     @objc private func confirmSignOut() {

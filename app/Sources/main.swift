@@ -10,7 +10,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var window: NSWindow?
-    private var statusTip: String?
+    private var statusLabel: String?
 
     override init() {
         let arguments = CommandLine.arguments
@@ -50,6 +50,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         }
         if arguments.contains("--selftest-status") {
             DispatchQueue.main.async { [weak self] in self?.testNativeStatus() }
+        }
+        if arguments.contains("--selftest-status-item") {
+            DispatchQueue.main.async { [weak self] in self?.testStatusItem() }
         }
         if arguments.contains("--selftest-engine") {
             DispatchQueue.main.async { [weak self] in self?.testEngineSurface() }
@@ -161,10 +164,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         } else {
             label = "ProtonX · Status unknown"
         }
-        guard label != statusTip else { return }
-        statusTip = label
+        guard label != statusLabel else { return }
+        statusLabel = label
         statusItem?.button?.image = state.isUp ? onlineImage : offlineImage
-        statusItem?.button?.toolTip = label
+        // No button.toolTip: on macOS 27.2 AppKit can leave the status item's
+        // NSToolTipPanel on screen after the pointer leaves, and it follows the
+        // pointer when the tooltip text changes. The accessibility label below
+        // carries the same state without creating a tooltip window.
         statusItem?.button?.setAccessibilityLabel(label)
     }
 
@@ -230,6 +236,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         controller.openWindow = { [weak self] page in self?.showWindow(page: page) }
         controller.checkForUpdates = { [weak self] in self?.checkForUpdates() }
         controller.repairNetwork = { [weak self] in self?.repairNetwork() }
+        controller.setPopoverBehavior = { [weak self] behavior in
+            self?.popover?.behavior = behavior
+        }
         controller.dismissForAlert = { [weak self] in
             guard let self, let popover = self.popover else { return false }
             let wasShown = popover.isShown
@@ -504,9 +513,33 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         }
     }
 
+    private func testStatusItem() {
+        guard let button = statusItem?.button else {
+            print("Status item: FAIL (no status item)")
+            exit(1)
+        }
+        let label = button.accessibilityLabel() ?? "none"
+        let screen = button.window.map { $0.convertToScreen(button.convert(button.bounds, to: nil)) } ?? .zero
+        let passed = button.toolTip == nil && label.contains("ProtonX")
+        print("Status item: \(passed ? "PASS" : "FAIL") (tooltip=\(button.toolTip ?? "none"), label=\(label), frame=\(NSStringFromRect(screen)))")
+        exit(passed ? 0 : 1)
+    }
+
     private func testAccountMenu() {
-        let controller = (popover?.isShown == true ? popover?.contentViewController : window?.contentViewController) as? PopoverController
-        guard let controller else {
+        let panel = popover ?? makePopover()
+        popover = panel
+        if !panel.isShown, let button = statusItem?.button {
+            (panel.contentViewController as? PopoverController)?.render()
+            activate()
+            panel.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+            self?.runAccountMenuProbe()
+        }
+    }
+
+    private func runAccountMenuProbe() {
+        guard let controller = popover?.contentViewController as? PopoverController else {
             print("Account menu: FAIL (no controller)")
             exit(1)
         }
@@ -515,9 +548,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
             print("Account menu: FAIL (not signed in)")
             exit(1)
         }
+        let before = popover?.isShown == true
         controller.presentAccountMenuForProbe(capture: ProcessInfo.processInfo.environment["PROTONX_CAPTURE"])
-        print("Account menu: PASS (items=\(titles.joined(separator: " | ")))")
-        exit(0)
+        let after = popover?.isShown == true
+        let passed = before && after
+        print("Account menu: \(passed ? "PASS" : "FAIL") (items=\(titles.joined(separator: " | ")), popoverBefore=\(before), popoverAfter=\(after))")
+        exit(passed ? 0 : 1)
     }
 
 
