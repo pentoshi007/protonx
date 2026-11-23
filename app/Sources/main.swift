@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 
 @MainActor
 final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate {
@@ -14,6 +15,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
     private var popoverMouseMonitor: Any?
     private var popoverKeyMonitor: Any?
     private var popoverResignObserver: NSObjectProtocol?
+    private var diagObservers: [NSObjectProtocol] = []
 
     override init() {
         let arguments = CommandLine.arguments
@@ -62,6 +64,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         }
         if arguments.contains("--selftest-account-menu") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.testAccountMenu() }
+        }
+        if arguments.contains("--selftest-account-click") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.testAccountClick() }
+        }
+        if arguments.contains("--selftest-account-panel") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.testAccountPanel() }
         }
         if arguments.contains("--selftest-update") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.testUpdateCheck() }
@@ -321,18 +329,38 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
     // in another app, Escape, or the app losing focus.
     private func installPopoverDismissal() {
         removePopoverDismissal()
+        MenuDiag.log("installPopoverDismissal isActive=\(NSApp.isActive)")
         popoverMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            MenuDiag.log("globalMouseDown loc=\(NSStringFromPoint(NSEvent.mouseLocation))")
             Task { @MainActor in self?.dismissPopoverIfOutside() }
         }
         popoverKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.keyCode == 53, let self, self.popover?.isShown == true else { return event }
+            if let controller = self.popover?.contentViewController as? PopoverController,
+               controller.dismissAccountPanelIfOpen() {
+                MenuDiag.log("escapeKeyDown -> closed account panel")
+                return nil
+            }
+            MenuDiag.log("escapeKeyDown -> closing popover")
             self.popover?.performClose(nil)
             return nil
         }
         popoverResignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
+            MenuDiag.log("didResignActive -> closing popover")
             Task { @MainActor in self?.popover?.performClose(nil) }
+        }
+        if MenuDiag.enabled {
+            diagObservers.append(NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+                MenuDiag.log("didBecomeActive")
+            })
+            diagObservers.append(NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
+                MenuDiag.log("windowDidBecomeKey \((note.object as? NSWindow).map { String(describing: type(of: $0)) } ?? "?")")
+            })
+            diagObservers.append(NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { note in
+                MenuDiag.log("windowDidResignKey \((note.object as? NSWindow).map { String(describing: type(of: $0)) } ?? "?")")
+            })
         }
     }
 
@@ -340,6 +368,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         if let popoverMouseMonitor { NSEvent.removeMonitor(popoverMouseMonitor) }
         if let popoverKeyMonitor { NSEvent.removeMonitor(popoverKeyMonitor) }
         if let popoverResignObserver { NotificationCenter.default.removeObserver(popoverResignObserver) }
+        for observer in diagObservers { NotificationCenter.default.removeObserver(observer) }
+        diagObservers.removeAll()
         popoverMouseMonitor = nil
         popoverKeyMonitor = nil
         popoverResignObserver = nil
@@ -351,6 +381,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
             let frame = window.convertToScreen(button.convert(button.bounds, to: nil))
             if frame.contains(NSEvent.mouseLocation) { return }
         }
+        MenuDiag.log("dismissPopoverIfOutside -> closing popover loc=\(NSStringFromPoint(NSEvent.mouseLocation))")
         popover.performClose(nil)
     }
 
@@ -358,11 +389,21 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
         if #available(macOS 14.0, *) { NSApp.activate() } else { NSApp.activate(ignoringOtherApps: true) }
     }
 
+    func popoverWillClose(_ notification: Notification) {
+        let reason = notification.userInfo?[NSPopover.closeReasonUserInfoKey]
+        MenuDiag.log("popoverWillClose reason=\(String(describing: reason))")
+        for line in Thread.callStackSymbols.prefix(16) { MenuDiag.log("  at \(line)") }
+        for window in NSApp.windows {
+            MenuDiag.log("  window \(type(of: window)) level=\(window.level.rawValue) key=\(window.isKeyWindow) main=\(window.isMainWindow) visible=\(window.isVisible) frame=\(NSStringFromRect(window.frame))")
+        }
+    }
     func popoverDidShow(_ notification: Notification) {
+        MenuDiag.log("popoverDidShow isActive=\(NSApp.isActive)")
         installPopoverDismissal()
         updateVisibility()
     }
     func popoverDidClose(_ notification: Notification) {
+        MenuDiag.log("popoverDidClose")
         removePopoverDismissal()
         updateVisibility()
     }
@@ -598,11 +639,139 @@ final class AppController: NSObject, NSApplicationDelegate, NSPopoverDelegate, N
             exit(1)
         }
         let before = popover?.isShown == true
-        controller.presentAccountMenuForProbe(capture: ProcessInfo.processInfo.environment["PROTONX_CAPTURE"])
-        let after = popover?.isShown == true
-        let passed = before && after
-        print("Account menu: \(passed ? "PASS" : "FAIL") (items=\(titles.joined(separator: " | ")), popoverBefore=\(before), popoverAfter=\(after))")
-        exit(passed ? 0 : 1)
+        controller.clickAccountButton()
+        let opened = controller.accountPanelIsVisible
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            let stayed = controller.accountPanelIsVisible
+            let after = self?.popover?.isShown == true
+            let passed = before && opened && stayed && after
+            print("Account menu: \(passed ? "PASS" : "FAIL") (items=\(titles.joined(separator: " | ")), popoverBefore=\(before), openedOnFirstClick=\(opened), stayedOpen=\(stayed), popoverAfter=\(after))")
+            exit(passed ? 0 : 1)
+        }
+    }
+
+    private func testAccountClick() {
+        guard let button = statusItem?.button else {
+            print("Account click: FAIL (no status item)")
+            exit(1)
+        }
+        MenuDiag.log("selftest start trusted=\(AXIsProcessTrusted())")
+        activate()
+        // Let launch-time activation settle first, so the click below measures
+        // the account button instead of the app becoming active.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+            guard let self else { return }
+            let panel = self.popover ?? self.makePopover()
+            self.popover = panel
+            (panel.contentViewController as? PopoverController)?.render()
+            panel.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            panel.contentViewController?.view.window?.makeKey()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+                self?.postAccountClick()
+            }
+        }
+    }
+
+    private func postAccountClick() {
+        guard let controller = popover?.contentViewController as? PopoverController,
+              let center = controller.accountButtonScreenCenter() else {
+            print("Account click: FAIL (no account button)")
+            exit(1)
+        }
+        let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+        let target = CGPoint(x: center.x, y: screenHeight - center.y)
+        MenuDiag.log("selftest clicking ns=\(NSStringFromPoint(center)) cg=\(NSStringFromPoint(target)) isActive=\(NSApp.isActive) key=\(popover?.contentViewController?.view.window?.isKeyWindow ?? false)")
+        let source = CGEventSource(stateID: .hidSystemState)
+        CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: target, mouseButton: .left)?.post(tap: .cghidEventTap)
+        CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: target, mouseButton: .left)?.post(tap: .cghidEventTap)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            let opened = controller.accountPanelIsVisible
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                let stayed = controller.accountPanelIsVisible
+                let passed = opened && stayed
+                print("Account click: \(passed ? "PASS" : "FAIL") (openedOnFirstClick=\(opened), stayedOpen=\(stayed), popoverShown=\(self?.popover?.isShown ?? false), trusted=\(AXIsProcessTrusted()))")
+                exit(passed ? 0 : 1)
+            }
+        }
+    }
+
+    private func testAccountPanel() {
+        guard let button = statusItem?.button else {
+            print("Account panel: FAIL (no status item)")
+            exit(1)
+        }
+        activate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+            guard let self else { return }
+            let panel = self.popover ?? self.makePopover()
+            self.popover = panel
+            (panel.contentViewController as? PopoverController)?.render()
+            panel.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            panel.contentViewController?.view.window?.makeKey()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+                self?.accountPanelSteps()
+            }
+        }
+    }
+
+    private func accountPanelSteps() {
+        guard let controller = popover?.contentViewController as? PopoverController else {
+            print("Account panel: FAIL (no controller)")
+            exit(1)
+        }
+        var results: [String: Bool] = [:]
+        let capture = ProcessInfo.processInfo.environment["PROTONX_CAPTURE"] ?? ""
+
+        func finish() {
+            let passed = results["stayed"] == true && results["outside"] == true
+                && results["escape"] == true && results["toggle"] == true
+            print("Account panel: \(passed ? "PASS" : "FAIL") (stayed=\(results["stayed"] ?? false), outsideClick=\(results["outside"] ?? false), escape=\(results["escape"] ?? false), toggle=\(results["toggle"] ?? false))")
+            exit(passed ? 0 : 1)
+        }
+
+        controller.clickAccountButton()
+        if !capture.isEmpty { captureScreen(capture) }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            results["stayed"] = controller.accountPanelIsVisible
+            if let frame = controller.popoverScreenFrame() {
+                self.clickScreen(NSPoint(x: frame.minX + 14, y: frame.minY + 14))
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                results["outside"] = !controller.accountPanelIsVisible
+                controller.clickAccountButton()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    self.pressEscape()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        results["escape"] = !controller.accountPanelIsVisible
+                        controller.clickAccountButton()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            if let center = controller.accountButtonScreenCenter() { self.clickScreen(center) }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                results["toggle"] = !controller.accountPanelIsVisible
+                                finish()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func clickScreen(_ point: NSPoint) {
+        let height = NSScreen.screens.first?.frame.height ?? 0
+        let target = CGPoint(x: point.x, y: height - point.y)
+        MenuDiag.log("clickScreen ns=\(NSStringFromPoint(point)) cg=\(NSStringFromPoint(target))")
+        let source = CGEventSource(stateID: .hidSystemState)
+        CGEvent(mouseEventSource: source, mouseType: .leftMouseDown, mouseCursorPosition: target, mouseButton: .left)?.post(tap: .cghidEventTap)
+        CGEvent(mouseEventSource: source, mouseType: .leftMouseUp, mouseCursorPosition: target, mouseButton: .left)?.post(tap: .cghidEventTap)
+    }
+
+    private func pressEscape() {
+        MenuDiag.log("pressEscape")
+        let source = CGEventSource(stateID: .hidSystemState)
+        CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: true)?.post(tap: .cghidEventTap)
+        CGEvent(keyboardEventSource: source, virtualKey: 53, keyDown: false)?.post(tap: .cghidEventTap)
     }
 
 

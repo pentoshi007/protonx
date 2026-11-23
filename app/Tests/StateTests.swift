@@ -103,8 +103,9 @@ private enum StateTests {
         savedServersPersistAndSearchUsesServerData()
         saveControlTogglesThroughTheButton()
         popoverControlsAcceptTheFirstClick()
+        accountPanelOpensOnTheFirstClick()
         try await searchControlFiltersTheTable()
-        print("12 ProtonX state scenarios passed")
+        print("13 ProtonX state scenarios passed")
     }
 
     static func restoredSessionStaysInCheckState() async throws {
@@ -270,6 +271,34 @@ private enum StateTests {
     static func popoverControlsAcceptTheFirstClick() {
         let button = ConsoleButton("Account", symbol: "person.crop.circle", style: .icon, height: 32)
         require(button.acceptsFirstMouse(for: nil), "popover controls must accept the first click")
+    }
+
+    static func accountPanelOpensOnTheFirstClick() {
+        let model = AccountPanel.Model(
+            username: "tester", version: "1.2.5", launchAtLogin: true,
+            canSignOut: true, canUpdate: true, canRepair: true
+        )
+        var chosen: [String] = []
+        let panel = AccountPanel(
+            model: model,
+            onUpdates: { chosen.append("updates") },
+            onLaunchAtLogin: { chosen.append("login") },
+            onRepair: { chosen.append("repair") },
+            onSignOut: { chosen.append("signout") }
+        )
+        require(panel.rowTitles == ["Check for Updates…", "Launch at Login", "Repair Network", "Sign Out…"],
+                "panel lists every account action")
+        let rows = panel.subviews
+            .compactMap { $0 as? NSStackView }
+            .flatMap { $0.arrangedSubviews }
+            .compactMap { $0 as? AccountRow }
+        require(rows.count == 4, "panel builds one row per action")
+        require(rows.allSatisfy { $0.acceptsFirstMouse(for: nil) }, "rows accept the first click")
+        var dismissed = 0
+        panel.onDismiss = { dismissed += 1 }
+        rows[0].handler?()
+        require(chosen == ["updates"], "a row runs its action")
+        require(dismissed == 1, "a row dismisses the panel before acting")
     }
 
     static func searchControlFiltersTheTable() async throws {

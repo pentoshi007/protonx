@@ -28,6 +28,8 @@ final class PopoverController: NSViewController {
     private var footerRow: NSView?
     private var presented = false
     private var lastSignedIn: Bool?
+    private var accountPanel: AccountPanel?
+    private var accountPanelMouseMonitor: Any?
 
     init(state: AppState, page: DirectoryPage = .locations, detached: Bool = false) {
         self.state = state
@@ -75,85 +77,107 @@ final class PopoverController: NSViewController {
         return line([logo, name, space(), refresh, accountButton, showWindow], spacing: 8)
     }
 
-    private func makeAccountMenu() -> NSMenu? {
+    private func makeAccountPanel() -> AccountPanel? {
         guard case .ready(let account) = state.session, account.signedIn else { return nil }
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        let identity = NSMenuItem(title: account.username ?? "Proton account", action: nil, keyEquivalent: "")
-        identity.isEnabled = false
-        menu.addItem(identity)
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
-        let build = NSMenuItem(title: "ProtonX \(version)", action: nil, keyEquivalent: "")
-        build.isEnabled = false
-        menu.addItem(build)
-        menu.addItem(.separator())
-        let updates = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdatesAction), keyEquivalent: "")
-        updates.target = self
-        updates.isEnabled = checkForUpdates != nil
-        menu.addItem(updates)
-        let login = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
-        login.target = self
-        login.state = LaunchAtLogin.isEnabled ? .on : .off
-        menu.addItem(login)
-        let repair = NSMenuItem(title: "Repair Network", action: #selector(repairNetworkAction), keyEquivalent: "")
-        repair.target = self
-        repair.isEnabled = repairNetwork != nil
-        menu.addItem(repair)
-        menu.addItem(.separator())
-        let signOut = NSMenuItem(title: "Sign Out…", action: #selector(confirmSignOut), keyEquivalent: "")
-        signOut.target = self
-        signOut.isEnabled = state.canSignOut
-        menu.addItem(signOut)
-        return menu
+        let model = AccountPanel.Model(
+            username: account.username ?? "Proton account",
+            version: version,
+            launchAtLogin: LaunchAtLogin.isEnabled,
+            canSignOut: state.canSignOut,
+            canUpdate: checkForUpdates != nil,
+            canRepair: repairNetwork != nil
+        )
+        return AccountPanel(
+            model: model,
+            onUpdates: { [weak self] in self?.checkForUpdates?() },
+            onLaunchAtLogin: { [weak self] in self?.toggleLaunchAtLogin() },
+            onRepair: { [weak self] in self?.repairNetwork?() },
+            onSignOut: { [weak self] in self?.confirmSignOut() }
+        )
     }
 
     private func showAccountMenu() {
-        // Present after the button's mouse event finishes. Popping the menu
-        // inside that event lets the same mouse-up dismiss it on the first
-        // click; the second click only worked because the window was already
-        // active by then.
-        DispatchQueue.main.async { [weak self] in self?.presentAccountMenu() }
+        if accountPanel != nil {
+            dismissAccountPanel()
+            return
+        }
+        presentAccountPanel()
     }
 
-    private func presentAccountMenu(capture: String? = nil, cancelAfter: TimeInterval? = nil) {
-        guard let menu = makeAccountMenu() else { return }
-        if let cancelAfter {
-            let timer = Timer(timeInterval: cancelAfter, repeats: false) { _ in
-                if let capture, !capture.isEmpty {
-                    let process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-                    process.arguments = ["-x", capture]
-                    try? process.run()
-                    process.waitUntilExit()
-                }
-                menu.cancelTracking()
-            }
-            RunLoop.main.add(timer, forMode: .common)
+    private func presentAccountPanel() {
+        guard let panel = makeAccountPanel() else { return }
+        MenuDiag.log("presentAccountPanel isActive=\(NSApp.isActive) key=\(view.window?.isKeyWindow ?? false)")
+        panel.onDismiss = { [weak self] in self?.dismissAccountPanel() }
+        view.addSubview(panel)
+        NSLayoutConstraint.activate([
+            panel.trailingAnchor.constraint(equalTo: accountButton.trailingAnchor),
+            panel.topAnchor.constraint(equalTo: accountButton.bottomAnchor, constant: 6),
+            panel.widthAnchor.constraint(equalToConstant: 230),
+        ])
+        accountPanel = panel
+        installAccountPanelDismissal()
+        MenuDiag.log("presentAccountPanel shown")
+    }
+
+    private func dismissAccountPanel() {
+        guard let panel = accountPanel else { return }
+        removeAccountPanelDismissal()
+        panel.removeFromSuperview()
+        accountPanel = nil
+        MenuDiag.log("dismissAccountPanel")
+    }
+
+    var accountPanelIsVisible: Bool { accountPanel != nil }
+
+    func clickAccountButton() { showAccountMenu() }
+
+    private func installAccountPanelDismissal() {
+        removeAccountPanelDismissal()
+        accountPanelMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, let panel = self.accountPanel, let window = panel.window,
+                  event.window === window else { return event }
+            let inPanel = panel.bounds.contains(panel.convert(event.locationInWindow, from: nil))
+            let inButton = self.accountButton.bounds.contains(self.accountButton.convert(event.locationInWindow, from: nil))
+            if !inPanel && !inButton { self.dismissAccountPanel() }
+            return event
         }
-        // The popover is application-defined, so opening a menu cannot make the
-        // system close it. The menu is presented after the button's mouse event
-        // so that same event cannot dismiss it either.
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: accountButton.bounds.height + 4), in: accountButton)
+    }
+
+    /// Escape belongs to the panel while it is open; the popover's own key
+    /// monitor asks this first so one Escape does not close both.
+    func dismissAccountPanelIfOpen() -> Bool {
+        guard accountPanel != nil else { return false }
+        dismissAccountPanel()
+        return true
+    }
+
+    private func removeAccountPanelDismissal() {
+        if let accountPanelMouseMonitor { NSEvent.removeMonitor(accountPanelMouseMonitor) }
+        accountPanelMouseMonitor = nil
     }
 
     func accountMenuTitles() -> [String] {
-        makeAccountMenu()?.items.map(\.title) ?? []
+        makeAccountPanel()?.rowTitles ?? []
     }
 
-    func presentAccountMenuForProbe(capture: String?, cancelAfter: TimeInterval = 0.8) {
-        presentAccountMenu(capture: capture, cancelAfter: cancelAfter)
+    func accountButtonScreenCenter() -> NSPoint? {
+        guard let window = accountButton.window else { return nil }
+        let screenRect = window.convertToScreen(accountButton.convert(accountButton.bounds, to: nil))
+        return NSPoint(x: screenRect.midX, y: screenRect.midY)
+    }
+
+    func accountPanelScreenFrame() -> NSRect? {
+        guard let panel = accountPanel, let window = panel.window else { return nil }
+        return window.convertToScreen(panel.convert(panel.bounds, to: nil))
+    }
+
+    func popoverScreenFrame() -> NSRect? {
+        view.window?.frame
     }
 
     @objc private func confirmSignOut() {
         DispatchQueue.main.async { [weak self] in self?.presentSignOutAlert() }
-    }
-
-    @objc private func checkForUpdatesAction() {
-        checkForUpdates?()
-    }
-
-    @objc private func repairNetworkAction() {
-        repairNetwork?()
     }
 
     @objc private func toggleLaunchAtLogin() {
@@ -206,7 +230,10 @@ final class PopoverController: NSViewController {
     func setPresented(_ isVisible: Bool) {
         guard presented != isVisible else { return }
         presented = isVisible
-        if !isVisible { sessionView.clearSensitiveFields() }
+        if !isVisible {
+            dismissAccountPanel()
+            sessionView.clearSensitiveFields()
+        }
         render()
         if isVisible, state.session.signedIn { directory.focusList() }
     }
@@ -215,6 +242,7 @@ final class PopoverController: NSViewController {
         guard isViewLoaded else { return }
         let signedIn = state.session.signedIn
         resize(for: signedIn)
+        if !signedIn { dismissAccountPanel() }
         accountButton.isHidden = !signedIn
         accountButton.isEnabled = state.operation != .signingOut
         refresh.isHidden = !signedIn
